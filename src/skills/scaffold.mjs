@@ -2,12 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SKILL_NAME_RE, parseSkillFile, skillsDir } from '../core/skills.mjs';
 import { renderSkill } from '../../tools/skills/skill.mjs';
+import { registerSkillRoot } from './roots.mjs';
 import { SKILL_FILE, MANIFEST_FILE, FIXTURE_DIR, FIXTURE_FILE, EXPECTED_FILE, SKILL_DOC_FILE, MANIFEST_VERSION, PERMISSION_KINDS } from './layout.mjs';
 
 const EXAMPLE_MAX_CHARS = 200; // Leaves room within the skill parser's description limit.
 export const SCAFFOLD_USAGE = 'ankita new skill [name] [--permissions files,network,shell,browser] [--example "input"] [--directory path]';
 
-export function scaffoldSkill({ name, permissions = [], example, root = skillsDir() } = {}) {
+export function scaffoldSkill({ name, permissions = [], example, root = skillsDir(), registerRoot = false } = {}) {
   if (typeof name !== 'string' || !SKILL_NAME_RE.test(name)) throw new Error('Use a lowercase skill name with letters, digits and hyphens');
   if (!Array.isArray(permissions) || permissions.some(value => !PERMISSION_KINDS.includes(value))) throw new Error(`Permissions must be: ${PERMISSION_KINDS.join(', ')}`);
   const input = String(example || '').replace(/\s+/g, ' ').trim();
@@ -29,6 +30,7 @@ export function scaffoldSkill({ name, permissions = [], example, root = skillsDi
     fs.mkdirSync(path.join(target, FIXTURE_DIR));
     fs.writeFileSync(path.join(target, FIXTURE_DIR, FIXTURE_FILE), JSON.stringify({ input: { name }, expectedFile: EXPECTED_FILE }, null, 2) + '\n');
     fs.writeFileSync(path.join(target, FIXTURE_DIR, EXPECTED_FILE), renderSkill(skill) + '\n');
+    if (registerRoot) registerSkillRoot(path.resolve(root));
     return target;
   } catch (error) {
     // Only the exclusively-created folder under the caller's root is rolled back.
