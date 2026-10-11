@@ -32,6 +32,9 @@ import { ChannelStore, ChannelManager } from './channels.mjs';
 import { TelegramBot } from '../../src/channels/telegram.mjs';
 import { DesktopPlugins } from './plugins.mjs';
 import { DesktopBrowserPlugins } from './browser-plugins.mjs';
+import { DesktopComputerUse } from './computer-use.mjs';
+import { COMPUTER_DIRECT_CONFIG } from '../../src/integrations/computer-use.mjs';
+import { COMPUTER_USE_CHANGED } from '../shared/computer-use.mjs';
 import { BrowserPluginStore, BROWSER_FILE } from '../../src/integrations/browser-plugins.mjs';
 import { BrowserSessionManager } from '../../tools/browser/session.mjs';
 import { ChromeBrowserAdapter } from '../../tools/browser/chrome.mjs';
@@ -328,6 +331,7 @@ export class DesktopEngine {
       onChange: () => this.emit({ type: 'browser-plugins-changed' }),
       onProgress: text => this.emit({ type: 'browser-install-progress', text }),
     });
+    this.computerUse = new DesktopComputerUse({ mcp: this.mcp, onChange: () => this.emit({ type: COMPUTER_USE_CHANGED }) });
     this.channels = new ChannelManager({
       store: new ChannelStore(channelsFile),
       engine: this,
@@ -877,7 +881,7 @@ export class DesktopEngine {
     const item = this.teammates.find(id);
     if (!item) throw new Error('Teammate not found');
     if (this.agents.has(id)) return this.agents.get(id);
-    const config = { ...this.config, desktopBackgroundJobs: true, agentName: item.name, systemExtra: item.persona };
+    const config = { ...this.config, desktopBackgroundJobs: true, [COMPUTER_DIRECT_CONFIG]: true, agentName: item.name, systemExtra: item.persona };
     let project = '', projectId = null, workspacePath = null;
     if (item.projectId) {
       const projects = new ProjectStore(this.projectsFile).load();
@@ -1057,6 +1061,7 @@ export class DesktopEngine {
   }
 
   async close() {
+    await this.computerUse?.close();
     await this.scheduler?.stop();
     if (this.projectFileWatcher) { fs.unwatchFile(this.projectsFile, this.projectFileWatcher); this.projectFileWatcher = null; }
     await this.channels.stopAll().catch(() => {});

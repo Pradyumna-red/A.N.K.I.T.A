@@ -21,6 +21,7 @@ export const MCP_TIERS_FILE = path.join(CONFIG_DIR, "mcp-tiers.json");
 export const COMPOSIO_FILE = path.join(CONFIG_DIR, "composio.json");
 export const COMPOSIO_GRANTS_FILE = path.join(CONFIG_DIR, "composio-grants.json");
 export const DAEMON_LOG = path.join(CONFIG_DIR, "daemon.log");
+export const DEFAULT_TOOL_OUTPUT_BYTES = 64 * 1024; // UTF-8 bytes/tool reply; shared by config and bounded observation formatting.
 
 const DEFAULTS = {
   username: "user",
@@ -32,7 +33,7 @@ const DEFAULTS = {
   historyMessages: 40,
   temperature: null,
   maxTokens: 4096,
-  maxToolChars: 65536,
+  maxToolChars: DEFAULT_TOOL_OUTPUT_BYTES,
   maxToolSteps: 100,
   maxToolCalls: 60,
   browserToolFocus: false, // Boolean: opt-in until repeated live capability parity clears the browser-lab gate.

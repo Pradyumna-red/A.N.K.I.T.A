@@ -1,3 +1,5 @@
+import type { COMPUTER_USE_CHANGED } from './computer-use.mjs';
+
 export type Teammate = {
   id: string; name: string; color: string; emoji: string; persona: string;
   projectId: string | null; model: string | null; createdAt: string; updatedAt: string;
@@ -44,6 +46,7 @@ export type PluginsOverview = { mode: 'direct' | 'broker' | 'unavailable'; live:
 export type PluginsCatalogPage = { cards: PluginCard[]; nextCursor: string | null };
 export type BrowserPlugin = { id: string; name: string; description: string; mode: 'isolated' | 'local'; enabled: boolean; ready: boolean; reason: string; allowedSites: string[]; blockedSites: string[]; headless?: boolean; connection?: 'profile' | 'port' | 'active'; port?: number };
 export type BrowserPluginsOverview = { isolated: BrowserPlugin; local: BrowserPlugin };
+export type ComputerUseOverview = { supported: boolean; installed: boolean; connected: boolean; connecting: boolean; command: string; version: string; docsUrl: string; error: string | null; tools: string[] };
 export type BrowserSessionView = { mode: 'isolated' | 'local' | 'external' | null; status: string; step: string; tabs: { id: string; url: string; title: string; active: boolean }[]; screenshot: string | null; notice?: import('../../src/integrations/browser-errors.mjs').BrowserNotice | null; progress?: import('./browser-progress.mjs').BrowserProgress; backgrounded?: boolean; dialog?: import('../../tools/browser/dialogs.mjs').BrowserDialog };
 export type SecureStoreRecord = { id: string; website: string; username: string; updatedAt: string; hasPassword: boolean };
 export type SecureStoreRequest = { type: 'secure-store-request'; requestId: string; threadId: string; callId: string; website: string; username: string; canSave: boolean; message: string };
@@ -89,7 +92,7 @@ export type EngineEvent = (
   | { type: 'teammates-changed' | 'tools-changed'; connected?: string[] }
   | { type: 'projects-changed' }
   | { type: 'channels-updated'; channels: ChannelsView }
-  | { type: 'browser-plugins-changed' }
+  | { type: 'browser-plugins-changed' | typeof COMPUTER_USE_CHANGED }
   | { type: 'browser-install-progress'; text: string }
   | { type: 'browser-state'; threadId: string | null; state: BrowserSessionView }
   | { type: 'approval-resolved'; requestId: string }

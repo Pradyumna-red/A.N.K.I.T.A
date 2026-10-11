@@ -75,7 +75,7 @@ export class McpStore {
     );
   }
 
-  add({ name, command, args = [], env = {}, transport = "stdio", id, source = null, hidden = false, manualStart = false }) {
+  add({ name, command, args = [], env = {}, transport = "stdio", id, source = null, hidden = false, manualStart = false, allowedTools = null, terminateTree = true }) {
     this._fresh();
     const cmd = String(command ?? "").trim();
     if (!cmd) throw new Error("a command is required (e.g. 'npx' or 'python')");
@@ -94,6 +94,8 @@ export class McpStore {
       source: source && typeof source === "object" ? source : null,
       hidden: hidden === true,
       manualStart: manualStart === true,
+      ...(Array.isArray(allowedTools) ? { allowedTools: [...new Set(allowedTools.filter(tool => typeof tool === 'string' && tool))] } : {}),
+      ...(terminateTree === false ? { terminateTree: false } : {}), // Native apps launched by a desktop driver belong to the user after control ends.
       enabled: true,
       // Nothing runs until the user approves this exact command.
       approvedAt: null,

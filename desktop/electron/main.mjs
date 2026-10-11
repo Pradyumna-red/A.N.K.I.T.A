@@ -10,6 +10,7 @@ import { menuTemplate } from './menu.mjs';
 import { setupUpdater } from './updater.mjs';
 import { renderPdfPages } from './pdf-render.mjs';
 import { IPC_CONTRACT } from '../shared/version.mjs';
+import { COMPUTER_USE_ACTIONS } from '../shared/computer-use.mjs';
 import { BROWSER_PREVIEW_POLL } from '../shared/browser-progress.mjs';
 import { CONFIG_DIR } from '../../src/core/config.mjs';
 import { shutdownFileToolWorkers } from '../../src/tooling/tool-worker.mjs';
@@ -551,6 +552,10 @@ ipcMain.handle('engine:invoke', async (event, action, payload) => {
     case 'pluginsDisconnectService': return current.plugins.disconnectService(payload);
     case 'pluginsRefresh': return current.refreshPlugins();
     case 'browserPluginsOverview': return current.browserPlugins.overview();
+    case COMPUTER_USE_ACTIONS.overview: return current.computerUse.overview();
+    case COMPUTER_USE_ACTIONS.connect: return current.computerUse.connect(payload);
+    case COMPUTER_USE_ACTIONS.check: return current.computerUse.check();
+    case COMPUTER_USE_ACTIONS.stop: return current.computerUse.stop();
     case 'browserPluginSetEnabled': return current.browserPlugins.setEnabled(payload);
     case 'browserPluginSetHeadless': return current.browserPlugins.setHeadless(payload);
     case 'browserPluginSiteRule': return current.browserPlugins.changeSiteRule(payload);

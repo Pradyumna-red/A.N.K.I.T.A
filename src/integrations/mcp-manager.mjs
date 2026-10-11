@@ -99,7 +99,7 @@ export class McpManager {
   }
 
   /** Connects a server and returns its record. Idempotent per id. */
-  async connect({ id, command, args = [], env = {}, cwd, transport = "stdio", url, headers = {}, trusted = false, alwaysOn = false, synthetic = false, hidden = false, requestTimeoutMs, initTimeoutMs, fetchImpl, signal }) {
+  async connect({ id, command, args = [], env = {}, cwd, transport = "stdio", url, headers = {}, trusted = false, alwaysOn = false, synthetic = false, hidden = false, allowedTools = null, terminateTree = true, requestTimeoutMs, initTimeoutMs, fetchImpl, signal }) {
     signal?.throwIfAborted();
     const serverId = slug(id || command || url);
     if (!serverId) throw new Error("an MCP server needs an id or a command");
@@ -121,6 +121,8 @@ export class McpManager {
       cwd,
       requestTimeoutMs,
       initTimeoutMs,
+      // A desktop driver must end without killing the user apps it opened. Other MCP servers retain tree teardown.
+      ...(terminateTree === false ? { terminateProcess: child => child.kill() } : {}),
       onStderr: (text) => this.log(`[${serverId}] ${text.trim().split("\n")[0]}`),
       // A dead child stops being reported as connected: drop the record (only
       // if it still points at this client, so a newer reconnect is never
@@ -150,7 +152,10 @@ export class McpManager {
       throw error;
     } finally { signal?.removeEventListener('abort', cancel); }
 
-    const record = { id: serverId, command, args, env, transport, url, headers, trusted, alwaysOn, synthetic, hidden, client, tools: client.tools };
+    const allowed = Array.isArray(allowedTools) ? new Set(allowedTools) : null;
+    const record = { id: serverId, command, args, env, transport, url, headers, trusted, alwaysOn, synthetic, hidden, client,
+      // Refreshes keep the same capability ceiling; new upstream tools never silently widen it.
+      get tools() { return allowed ? client.tools.filter(tool => allowed.has(tool.name)) : client.tools; } };
     this.servers.set(serverId, record);
     this._clients.add(client);
     this.log(`connected ${serverId} (${client.tools.length} tool(s))`);
@@ -310,6 +315,8 @@ export class McpManager {
           env: record.env,
           transport: record.transport,
           hidden: record.hidden === true,
+          allowedTools: record.allowedTools,
+          terminateTree: record.terminateTree,
         });
         store.markConnected(id, true, null);
         changed = true;
