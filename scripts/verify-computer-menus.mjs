@@ -13,7 +13,7 @@ import { McpManager } from '../src/integrations/mcp-manager.mjs';
 import { COMPUTER_MCP_ID, COMPUTER_DIRECT_CONFIG, COMPUTER_CURSOR_TOOLS } from '../src/integrations/computer-use.mjs';
 import { computerOverlayWindow } from './lib/computer-menu-evidence.mjs';
 
-const MENU_SETTLE_MS = 160; // Milliseconds; two native overlay z-order ticks before independent readback.
+const MENU_SETTLE_MS = 500; // Milliseconds; two slow 250-ms overlay heartbeats in the pinned driver before independent readback.
 const DIAGNOSTIC_TIMEOUT_MS = 10_000; // Milliseconds; bounded read-only native window enumeration.
 const POEM = 'The morning wakes in quiet light,\r\nA little hope makes shadows bright.\r\n'; // Test-only document content.
 const DEFAULT_APP = 'Notepad'; // This live Windows regression targets the user's reported application.
@@ -75,6 +75,15 @@ try {
   console.log(JSON.stringify({ phase: 'menu-open', popup, overlay, foreground: opened.foreground }));
   assert.ok(overlay.z < popup.z, 'the arrow must paint above the owned dropdown');
   assert.equal(opened.foreground, target.window_id, 'layer maintenance must preserve application focus');
+  const screenshotPath = option('--screenshot'); // Optional local diagnostic artifact; never sent to a model or checked into Git.
+  if (screenshotPath) {
+    const captured = await manager.callToolResult(`mcp__${COMPUTER_MCP_ID}__get_desktop_state`, { session: service.pointerSession });
+    assert.equal(captured.isError, false, captured.text);
+    const image = captured.raw.content.find(part => part.type === 'image');
+    assert.ok(image, 'the real driver must supply a desktop image');
+    fs.writeFileSync(path.resolve(screenshotPath), Buffer.from(image.data, 'base64'));
+    snapshot = await state(); // Capture may refresh provider snapshots; Save always uses a fresh observed target.
+  }
   const save = snapshot.elements.find(element => element.role === 'MenuItem' && /^Save\t/.test(element.label));
   await call('click', { ...target, element_token: save.element_token, delivery_mode: 'foreground' });
   snapshot = await state();

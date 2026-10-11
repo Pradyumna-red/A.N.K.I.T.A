@@ -13,7 +13,7 @@ Tasks:
 - [x] Run focused tests, serial suite, desktop build, live installed-driver MCP discovery/observation, and a harmless controlled app round trip where available. Document exact results and uncovered paths.
 - [x] User-approved follow-up: enable the driver's animated arrow by default, persist the Show pointer choice and end its session on Stop. Keep replacement transports private until setup completes and cancel all pending native startup paths.
 - [x] User-requested styling: match the desktop palette/type, group actions, add a status badge and styled pointer switch, and provide responsive layout, keyboard focus and reduced-motion support.
-- [ ] User-requested global popup fix: correct native window-family/band selection inside the external driver, build it reproducibly, prove menu layering and saved-file readback, then leave the desktop using that service.
+- [x] User-requested global popup fix: correct native window-family/band selection inside the external driver, build it reproducibly, prove menu layering and saved-file readback, then leave the desktop using that service.
 
 Completion evidence is recorded in [the computer-use guide](../../guides/computer-use.md), including the hosted model's Notepad readback and fresh-identifier delivery through final reply/context limits. No dependency was added or upgraded. The local configuration cleanup is private and excluded from the source change.
 
