@@ -254,6 +254,9 @@ async function withReconnect(mcp, s, record) {
       args: record.args,
       env: record.env,
       transport: record.transport,
+      hidden: record.hidden === true,
+      allowedTools: record.allowedTools,
+      terminateTree: record.terminateTree,
     });
     s.markConnected(record.id, true, null);
     const tools = mcp.servers.get(record.id)?.tools?.map((t) => t.name) || [];

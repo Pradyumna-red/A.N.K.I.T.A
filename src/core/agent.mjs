@@ -2,7 +2,7 @@ import os from "node:os";
 import path from 'node:path';
 import { ProfileStore } from '../memory/profile.mjs';
 import fs from 'node:fs';
-import { PROFILE_FILE, PROJECTS_FILE } from './config.mjs';
+import { PROFILE_FILE, PROJECTS_FILE, DEFAULT_TOOL_OUTPUT_BYTES } from './config.mjs';
 import { ProjectStore } from '../memory/projects.mjs';
 import { randomUUID, createHash } from 'node:crypto';
 import { personalMemoryContext, withMemoryContext } from '../memory/memory-context.mjs';
@@ -26,6 +26,8 @@ import { isToolFailure, verdictFor, verificationFooter } from './verify.mjs';
 import { browserScreenshotImage, MAX_BROWSER_SCREENSHOTS_PER_TURN } from '../../tools/browser/screenshots.mjs';
 import { managedMcpSummaries, isBrowserMcpTool, MANAGED_BROWSER_REQUIRED } from '../integrations/browser-routing.mjs';
 import { parseToolName } from '../integrations/mcp-manager.mjs';
+import { attachMcpImages, MAX_MCP_IMAGES_PER_TURN, messagesForModel } from '../integrations/mcp-images.mjs';
+import { COMPUTER_MCP_ID, COMPUTER_DIRECT_CONFIG, COMPUTER_POINTER_SESSION, COMPUTER_GUIDANCE, COMPUTER_READ_TOOLS, COMPUTER_TOOLS, computerObservationTargets, formatComputerTargets } from '../integrations/computer-use.mjs';
 import { BACKGROUND_JOB_PROMPT, BACKGROUND_BROWSER_PROMPT, DEFAULT_JOB_ALLOW, JOB_EXECUTION_COMPLETE, SCHEDULE_TASK_GUIDANCE } from '../automation/job-policy.mjs';
 
 const foregroundBrowserSpec = specs.find(spec => spec.function.name === 'browser');
@@ -272,6 +274,7 @@ export function buildSystemPrompt(config, cwd, project = null, mcpServers = [], 
     "For anything time-sensitive or factual about the world, load `web` with find_tools and search " +
       "rather than guessing.",
     ...mcpPromptLines(mcpServers),
+    ...(mcpServers.some(server => server.id === COMPUTER_MCP_ID) ? [COMPUTER_GUIDANCE, config[COMPUTER_DIRECT_CONFIG] ? 'Connected native desktop controls are already authorized. Execute the requested computer task without asking for per-action approval.' : ''] : []),
     ...(skillLines.length ? ['', ...skillLines] : []),
     "",
     "You are NOT confined to the working directory. Any absolute path works, and every path a tool " +
@@ -638,6 +641,16 @@ export class Agent {
     catch { return ''; }
   }
 
+  /** Refit complete native targeting proof whenever the final reply or model context shrinks it. */
+  fitToolContent(message, maxBytes) {
+    const observation = this.computerObservations?.get(message.tool_call_id);
+    if (!observation) return capOutput(message.content, maxBytes);
+    const footer = Buffer.byteLength(observation.footer || '') <= maxBytes ? observation.footer || '' : capOutput(observation.footer, maxBytes);
+    const remaining = Math.max(0, maxBytes - Buffer.byteLength(footer));
+    const targets = formatComputerTargets(observation.targets, remaining);
+    return capOutput(observation.text, remaining - Buffer.byteLength(targets)) + targets + footer;
+  }
+
   /** Drop old turns, never splitting an assistant tool_calls from its tool replies. */
   trimHistory(max) {
     // UTF-8 bytes are a conservative token upper bound; reserve output + tools.
@@ -647,7 +660,7 @@ export class Agent {
       schemaBytes(this.currentSpecs()) -
       (this.memoryContext ? Buffer.byteLength(JSON.stringify(this.memoryContext.messages)) : 0);
     if (available < MIN_HISTORY_BYTES) throw new Error('Model context window is too small for the configured output and tools. Reduce MAX_TOKENS or disable tools.');
-    this.messages = trimMessages(this.messages, max, available);
+    this.messages = trimMessages(this.messages, max, available, { fitToolContent: (message, bytes) => this.fitToolContent(message, bytes) });
   }
 
   cancelled() {
@@ -673,6 +686,8 @@ export class Agent {
     if (entry.name === 'browser') {
       try { entry.browserRead = isReadOnly(entry.name, JSON.parse(call.function.arguments || '{}')); } catch {}
     }
+    const native = parseToolName(entry.name);
+    entry.computerRead = native?.serverId === COMPUTER_MCP_ID && COMPUTER_READ_TOOLS.includes(native.toolName);
     entry.count += 1;
     this.repeatsThisTurn.set(signature, entry);
     return entry;
@@ -725,11 +740,11 @@ export class Agent {
     const request = (cli, mdl, retries) => {
       const body = {
         model: mdl,
-        messages: withMemoryContext(this.config.browserHistoryCompaction === true ? compactBrowserHistory(this.messages, {
+        messages: messagesForModel(withMemoryContext(this.config.browserHistoryCompaction === true ? compactBrowserHistory(this.messages, {
           evidence: this.config.browserEvidenceRetention === true ? this.browserEvidence?.items || [] : [], notice: this.browserEvidence?.notice,
           maxBytes: this.contextWindow - this.outputReserve() - CONTEXT_OVERHEAD_BYTES - schemaBytes(this.currentSpecs()) -
             (this.memoryContext ? Buffer.byteLength(JSON.stringify(this.memoryContext.messages)) : 0),
-        }) : this.messages, this.memoryContext),
+        }) : this.messages, this.memoryContext), cli.modelCapabilities?.get(mdl)?.vision),
         stream: true,
         stream_options: { include_usage: true },
       };
@@ -896,6 +911,13 @@ export class Agent {
       return `Error: arguments were not valid JSON (${err.message}).`;
     }
 
+    const native = parseToolName(name);
+    const directComputer = this.config[COMPUTER_DIRECT_CONFIG] === true && native?.serverId === COMPUTER_MCP_ID && COMPUTER_TOOLS.includes(native.toolName);
+    const pointerSession = found.record?.[COMPUTER_POINTER_SESSION];
+    if (directComputer && pointerSession && found.tool?.inputSchema?.properties?.session) {
+      // A model-chosen session must not create another cursor outside the desktop's Show pointer setting.
+      args = { ...args, session: pointerSession };
+    }
     // Tier 3 is the only silent denial, and it is always an explicit blocklist
     // entry rather than a guess, so the model can be told exactly why.
     const decision = this.mcp.tierFor?.(name, args);
@@ -903,7 +925,8 @@ export class Agent {
       this.mcp.recordTierDecision?.(name, "denied");
       return `Error: ${decision.label} is blocked by the approval tiers. Do not retry it; ask the user whether the tier rule should change.`;
     }
-    if (this.mcp.needsApproval(name, args) && this.autoApprove !== true) {
+    if (directComputer) this.mcp.recordTierDecision?.(name, 'allowed');
+    if (!directComputer && this.mcp.needsApproval(name, args) && this.autoApprove !== true) {
       const detail = this.mcp.approvalDetail(name, args);
       const ok = await this.confirm?.(name, detail);
       this.mcp.recordTierDecision?.(name, ok === true ? "allowed" : "denied");
@@ -911,7 +934,21 @@ export class Agent {
     }
 
     try {
-      return await this.mcp.callTool(name, args, { signal: this.abort?.signal });
+      if (!this.mcp.callToolResult) return await this.mcp.callTool(name, args, { signal: this.abort?.signal });
+      const result = await this.mcp.callToolResult(name, args, { signal: this.abort?.signal });
+      const targets = parseToolName(name)?.serverId === COMPUTER_MCP_ID ? computerObservationTargets(result) : null;
+      const activeClient = this._activeModelClient || this.client;
+      const activeModel = this._activeModel || this.model;
+      const rendered = attachMcpImages(result, { messages: this.messages, callId: call.id, toolName: name,
+        vision: activeClient?.modelCapabilities?.get(activeModel)?.vision,
+        remaining: Math.max(0, MAX_MCP_IMAGES_PER_TURN - (this.mcpImagesThisTurn || 0)) });
+      this.mcpImagesThisTurn = (this.mcpImagesThisTurn || 0) + rendered.attached;
+      if (targets) {
+        this.computerObservations ??= new Map();
+        const budget = this.config.maxToolChars > 0 ? this.config.maxToolChars : DEFAULT_TOOL_OUTPUT_BYTES;
+        this.computerObservations.set(call.id, { targets, text: capOutput(rendered.text, budget) });
+      }
+      return rendered.text + formatComputerTargets(targets);
     } catch (err) {
       return `Error while running ${name}: ${err.message}`;
     }
@@ -973,7 +1010,7 @@ export class Agent {
       },
     };
 
-    const budget = this.config.maxToolChars > 0 ? this.config.maxToolChars : 65536;
+    const budget = this.config.maxToolChars > 0 ? this.config.maxToolChars : DEFAULT_TOOL_OUTPUT_BYTES;
     try {
       if (this.cancelled()) return 'Action cancelled by user.';
       if (needsApproval(tool.name, args, ctx)) {
@@ -1083,6 +1120,8 @@ export class Agent {
     this.searchesThisTurn = 0;
     this.repeatsThisTurn = new Map();
     this.browserScreenshotsThisTurn = 0;
+    this.mcpImagesThisTurn = 0;
+    this.computerObservations = new Map();
     this.ranThisTurn = [];
     this.browserActionsThisTurn = 0;
     this.browserEvidence = null;
@@ -1309,7 +1348,7 @@ export class Agent {
         repeatCounts.set(call.id, entry.count);
       }
 
-      const budget = this.config.maxToolChars > 0 ? this.config.maxToolChars : 65536;
+      const budget = this.config.maxToolChars > 0 ? this.config.maxToolChars : DEFAULT_TOOL_OUTPUT_BYTES;
 
       // Exactly one reply per declared tool_call, whatever happens. The API
       // rejects the entire next request if any call is unanswered ("must be
@@ -1340,6 +1379,12 @@ export class Agent {
             if (entry.browserRead) this.repeatsThisTurn.delete(signature);
           }
         }
+        const native = parseToolName(call?.function?.name);
+        if (native?.serverId === COMPUTER_MCP_ID && COMPUTER_TOOLS.includes(native.toolName) && !COMPUTER_READ_TOOLS.includes(native.toolName) && !isToolFailure(result)) {
+          for (const [signature, entry] of this.repeatsThisTurn) {
+            if (entry.computerRead) this.repeatsThisTurn.delete(signature);
+          }
+        }
         const verdict = verdictFor(call?.function?.name, args || {}, result, this.mcp);
         const footer = verificationFooter(verdict);
         try {
@@ -1355,7 +1400,14 @@ export class Agent {
             : '';
           const fittedFooter = Buffer.byteLength(footer) <= budget ? footer
             : capOutput(verdict?.ok === true ? '\n[verified: receipt]' : '\n[UNVERIFIED]', budget);
-          return reply(call, capOutput(note + result, Math.max(0, budget - Buffer.byteLength(fittedFooter))) + fittedFooter);
+          const remaining = Math.max(0, budget - Buffer.byteLength(fittedFooter));
+          const observation = this.computerObservations?.get(call.id);
+          if (observation) {
+            observation.text = note + observation.text;
+            observation.footer = fittedFooter;
+            return reply(call, this.fitToolContent({ tool_call_id: call.id }, budget));
+          }
+          return reply(call, capOutput(note + result, remaining) + fittedFooter);
         } catch (err) {
           return reply(call, `Error: the result could not be formatted (${err.message}).`);
         }

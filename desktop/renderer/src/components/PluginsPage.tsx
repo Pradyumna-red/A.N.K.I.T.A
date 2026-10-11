@@ -4,6 +4,7 @@ import { Icon } from './Icons';
 import { WindowControls } from './WindowControls';
 import { SkillsSection } from './SkillsSection';
 import { BrowserPluginsSection } from './BrowserPluginsSection';
+import { ComputerUseSection } from './ComputerUseSection';
 import { SecureStoreAccounts } from './SecureStore';
 
 const PAGE_SIZE = 24;
@@ -183,6 +184,7 @@ export function PluginsPage({ chrome, sidebarOpen, onToggleSidebar, onOpenSettin
       {section === 'skills' ? <SkillsSection /> : <>
       <div className="plugins-intro"><h1>Connected apps</h1><p>Browsers, accounts, and tools your teammates can use.</p></div>
       <BrowserPluginsSection />
+      <ComputerUseSection />
       <SecureStoreAccounts />
       {error && <div className="plugins-alert" role="alert"><Icon name="alert" size={16} /><span>{error}</span><button type="button" onClick={() => setError('')} aria-label="Dismiss error"><Icon name="close" size={15} /></button></div>}
       {notice && <div className="plugins-notice" role="status"><Icon name="check" size={16} /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Dismiss notice"><Icon name="close" size={15} /></button></div>}

@@ -49,10 +49,22 @@ test('a real MCP HTTP handshake and a failed connection both produce plugin star
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const manager = new McpManager();
   t.after(async () => { await manager.closeAll(); await new Promise(resolve => server.close(resolve)); });
+  startupProfile.clear();
+  let setupRan = false;
+  manager.setConnectionSetup('timing-fixture', () => {
+    assert.equal(manager.has('timing-fixture'), false, 'host setup completes before exposing the connection');
+    setupRan = true;
+  });
   await manager.connect({ id: 'timing-fixture', transport: 'http', url: `http://127.0.0.1:${server.address().port}` });
+  assert.equal(setupRan, true);
   assert.equal(startupProfile.snapshot().find(r => r.name === 'timing-fixture')?.status, 'ready');
   await assert.rejects(manager.connect({ id: 'failed-fixture', command: 'missing-ankita-timing-fixture' }));
   assert.equal(startupProfile.snapshot().find(r => r.name === 'failed-fixture')?.status, 'error');
+  manager.setConnectionSetup('failed-setup', () => { throw new Error('Test host setup failure'); });
+  await assert.rejects(manager.connect({ id: 'failed-setup', transport: 'http', url: `http://127.0.0.1:${server.address().port}` }), /Test host setup failure/);
+  assert.equal(startupProfile.snapshot().find(r => r.name === 'failed-setup')?.status, 'error');
+  assert.equal(manager.has('failed-setup'), false);
+  assert.equal(manager.isConnecting('failed-setup'), false);
 });
 
 test('desktop startup report uses the same live measurements', async () => {

@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/trycua/cua.git",
+  "revision": "bb8c86049cad1bf0853c6d25c03c14875d0d047f",
+  "version": "0.20.0",
+  "sourceDirectory": "libs/cua-driver/rust",
+  "patch": "windows-owned-popups.patch",
+  "reason": "Pin the installed MCP contract while correcting owned-window overlay layering in the external driver. Cargo.lock stays unchanged."
+}

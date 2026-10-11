@@ -1769,6 +1769,9 @@ export async function main() {
               args: record.args,
               env: record.env,
               transport: record.transport,
+              hidden: record.hidden === true,
+              allowedTools: record.allowedTools,
+              terminateTree: record.terminateTree,
             });
             const tools = mcp.servers.get(record.id)?.tools?.map((t) => t.name) || [];
             store.markConnected(record.id, true, null);
