@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { validatePalette } from '../palette/index.mjs';
 import { startupProfile } from './startup-profile.mjs';
 import { SKILL_FILE, MANIFEST_FILE } from '../skills/layout.mjs';
+import { registeredSkillRoots } from '../skills/roots.mjs';
 
 const TOOL_METADATA_CHARS = 200; // Characters per tool-hint/activation field; bounds catalog metadata.
 const TOOL_NAME_RE = /^[a-z][a-z0-9_-]*$/; // Native tool identifiers, never page text or query matching.
@@ -11,7 +12,7 @@ const AUTO_SKILL_PROMPT_CHARS = 6000; // Total characters of automatic instructi
 
 export const SKILL_NAME_RE = /^[a-z0-9-]{1,64}$/;
 
-let cache = null;
+const cache = new Map(); // One entry per root so discovering custom folders preserves warm bundled parses.
 
 export function skillsDir() {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'skills');
@@ -54,10 +55,21 @@ export function parseSkillFile(text, dirName) {
 }
 
 export function reloadSkills() {
-  cache = null;
+  cache.clear();
 }
 
-export function loadSkills(dir = skillsDir()) {
+export function loadSkills(dir) {
+  if (dir === undefined) {
+    let installed = [];
+    try { installed = registeredSkillRoots(); }
+    catch (error) { console.error(`Skipping custom skill roots: ${error.message}`); }
+    const catalog = new Map();
+    // Bundled skills win name collisions; the first registered custom root wins thereafter.
+    for (const root of new Set([skillsDir(), ...installed])) {
+      for (const skill of loadSkills(root)) if (!catalog.has(skill.name)) catalog.set(skill.name, skill);
+    }
+    return [...catalog.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }
   let entries;
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -79,8 +91,10 @@ export function loadSkills(dir = skillsDir()) {
       return { name: entry.name, file, stamp: 'missing' };
     }
   });
-  const key = JSON.stringify([path.resolve(dir), files.map(({ name, stamp }) => [name, stamp])]);
-  if (cache?.key === key) return cache.skills;
+  const root = path.resolve(dir);
+  const key = JSON.stringify(files.map(({ name, stamp }) => [name, stamp]));
+  const previous = cache.get(root);
+  if (previous?.key === key) return previous.skills;
 
   const skills = [];
   for (const { name, file, manifest, stamp } of files) {
@@ -101,7 +115,7 @@ export function loadSkills(dir = skillsDir()) {
       console.error(`Skipping skill ${name}: ${error.message}`);
     } finally { startupProfile.finish('skill', name, started, status); }
   }
-  cache = { key, skills };
+  cache.set(root, { key, skills });
   return skills;
 }
 
