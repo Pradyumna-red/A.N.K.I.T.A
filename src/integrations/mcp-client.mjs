@@ -697,7 +697,13 @@ export class McpClient {
     };
   }
 
-  async close() {
+  close() {
+    // Every caller awaits the same teardown, including startup cancellation racing connect().
+    this.closing ??= this._close();
+    return this.closing;
+  }
+
+  async _close() {
     if (this.closed) return;
     this.closed = true;
     for (const entry of this.pending.values()) entry.reject(new Error('MCP connection closed'));

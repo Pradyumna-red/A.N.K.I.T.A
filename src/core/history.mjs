@@ -200,7 +200,7 @@ function groups(messages) {
 }
 
 /** Count messages, preserve the current task, and remove tool exchanges atomically. */
-export function trimMessages(messages, maxMessages = 40, maxBytes = Infinity) {
+export function trimMessages(messages, maxMessages = 40, maxBytes = Infinity, { fitToolContent } = {}) {
   const clean = sanitizeMessages(messages);
   const system = clean[0]?.role === 'system' ? clean.shift() : { role: 'system', content: '' };
   const max = Math.max(TOOL_EXCHANGE_MESSAGES, Number(maxMessages) || 40);
@@ -251,7 +251,7 @@ export function trimMessages(messages, maxMessages = 40, maxBytes = Infinity) {
     // strings left that turn untouched, so it still exceeded the budget and the
     // turn failed outright.
     const textUnits = (m) => {
-      if (typeof m.content === 'string') return [{ kind: 'string', get: () => m.content, set: (v) => { m.content = v; } }];
+      if (typeof m.content === 'string') return [{ kind: 'string', message: m, get: () => m.content, set: (v) => { m.content = v; } }];
       if (!Array.isArray(m.content)) return [];
       const units = m.content
         .filter(part => part?.type === 'text' && typeof part.text === 'string')
@@ -291,7 +291,9 @@ export function trimMessages(messages, maxMessages = 40, maxBytes = Infinity) {
       if (excess <= 0) break;
       if (part.kind === 'image') continue;
       const current = part.get();
-      const trimmed = capOutput(current, Math.max(128, part.cost - excess - 64));
+      const limit = Math.max(128, part.cost - excess - 64);
+      // A native observation must retain complete targeting proof when ordinary context trimming refits it.
+      const trimmed = part.message?.role === 'tool' && fitToolContent ? fitToolContent(part.message, limit) : capOutput(current, limit);
       part.set(trimmed);
       const cost = Buffer.byteLength(trimmed);
       totalBytes += cost - part.cost;

@@ -1,0 +1,54 @@
+name: Windows computer driver
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/cua-driver/**'
+      - 'scripts/build-computer-driver.mjs'
+      - 'scripts/lib/computer-driver-build.mjs'
+      - 'test/integrations/computer-driver-build.test.mjs'
+      - '.github/workflows/computer-driver.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  owned-popups:
+    runs-on: windows-2022
+    timeout-minutes: 45 # Minutes; bounded native compile and optimized release build.
+    env:
+      RUSTUP_TOOLCHAIN: stable # Use the runner's installed compiler; no local toolchain installation.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Ensure the existing compiler has its required Spectre runtime libraries
+        shell: pwsh
+        run: |
+          $installerRoot = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer'
+          $locator = Join-Path $installerRoot 'vswhere.exe'
+          $component = 'Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre'
+          $ready = & $locator -latest -products '*' -requires $component -property installationPath
+          if (-not $ready) {
+            $compiler = & $locator -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            if (-not $compiler) { throw 'Windows runner has no C++ compiler' }
+            $installer = Join-Path $installerRoot 'setup.exe'
+            $arguments = @('modify', '--installPath', ('"' + $compiler + '"'), '--add', $component, '--quiet', '--norestart')
+            $process = Start-Process -FilePath $installer -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+            $restartExit = 3010 # Installer exit code: successful installation, restart recommended.
+            if ($process.ExitCode -notin @(0, $restartExit)) { throw "Runtime library installation failed: $($process.ExitCode)" }
+          }
+      - name: Test the native overlay and build the external MCP driver
+        # The guard checks the exact reviewed source before compiling it.
+        run: |
+          node --test test/integrations/computer-driver-build.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/build-computer-driver.mjs --output desktop/release/computer-driver
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-computer-driver
+          path: desktop/release/computer-driver/
+          if-no-files-found: error
+          retention-days: 14 # Days; review builds are temporary artifacts, not releases.
