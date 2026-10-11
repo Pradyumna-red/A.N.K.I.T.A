@@ -1,0 +1,298 @@
+diff --git a/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs b/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs
+index d9ecc74bf..a3a7f0a3b 100644
+--- a/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs
++++ b/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs
+@@ -41,6 +41,8 @@ use cursor_overlay::{
+     RenderStateCore, ZOrderEnforcer,
+ };
+ use indexmap::IndexMap;
++mod window_family;
++use window_family::{is_driven_window_family, win_z_order_placement, WinZOrderPlacement};
+ 
+ // ── Global channel ────────────────────────────────────────────────────────
+ 
+@@ -1271,8 +1273,23 @@ unsafe extern "system" fn wnd_proc(
+                     // returns `None` here and does no compositing at all.
+                     let should_render = had_msg || hover_changed || needs_tick || was_active;
+ 
++                    // Ownership can change without pixels changing: a native menu
++                    // may appear while the cursor rests. Keep the lightweight
++                    // layer check independent of the expensive paint gate.
++                    let mut driven: Vec<u64> = Vec::new();
++                    for rs in map.cursors.values() {
++                        if !rs.core.visible || rs.core.idle_alpha < 0.004 {
++                            continue;
++                        }
++                        if let Some(w) = rs.core.pinned_wid {
++                            if !driven.contains(&w) {
++                                driven.push(w);
++                            }
++                        }
++                    }
++                    let pinned = unsafe { topmost_of(&driven) };
+                     if !should_render {
+-                        (None, arrived, None, needs_tick, needs_hover_poll)
++                        (None, arrived, pinned, needs_tick, needs_hover_poll)
+                     } else {
+                         // Decide where to pin the single overlay window in z.
+                         //
+@@ -1291,18 +1308,6 @@ unsafe extern "system" fn wnd_proc(
+                         // which works from this non-foreground thread; an
+                         // absolute HWND_TOP can be refused by the foreground lock
+                         // and sink the overlay behind everything.
+-                        let mut driven: Vec<u64> = Vec::new();
+-                        for rs in map.cursors.values() {
+-                            if !rs.core.visible || rs.core.idle_alpha < 0.004 {
+-                                continue;
+-                            }
+-                            if let Some(w) = rs.core.pinned_wid {
+-                                if !driven.contains(&w) {
+-                                    driven.push(w);
+-                                }
+-                            }
+-                        }
+-                        let pinned = unsafe { topmost_of(&driven) };
+ 
+                         // Dirty-rect composite: paint only the union of last
+                         // frame's and this frame's cursor bounds into the
+@@ -1324,14 +1329,16 @@ unsafe extern "system" fn wnd_proc(
+                 }
+             };
+ 
++            let painted = upload.is_some();
+             if let Some(dirty) = upload {
+                 unsafe { present_surface(hwnd, dirty) };
+-
++            }
++            if painted || pinned_wid.is_some() {
+                 // Z-order maintenance every 80ms — delegate to the cross-platform
+                 // ZOrderEnforcer so the contract for "z+1 of the application under
+                 // test" is documented once in `cursor_overlay::z_order`. Only run
+-                // while we actually rendered: a quiescent overlay leaves its z-slot
+-                // untouched until the next command wakes the loop.
++                // while painted or a visible cursor owns a target. Resting
++                // cursors follow popup creation/dismissal without repainting.
+                 let last = LAST_ZTICK.load(std::sync::atomic::Ordering::Relaxed);
+                 if now_ms.wrapping_sub(last) >= 80 {
+                     LAST_ZTICK.store(now_ms, std::sync::atomic::Ordering::Relaxed);
+@@ -1402,20 +1409,6 @@ struct WinZOrderEnforcer {
+     hwnd_isize: isize,
+ }
+ 
+-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+-enum WinZOrderPlacement {
+-    AboveTarget,
+-    ForceFrontNonTopmost,
+-}
+-
+-fn win_z_order_placement(has_live_target: bool) -> WinZOrderPlacement {
+-    if has_live_target {
+-        WinZOrderPlacement::AboveTarget
+-    } else {
+-        WinZOrderPlacement::ForceFrontNonTopmost
+-    }
+-}
+-
+ /// Of the given window ids, return the one highest in the current z-order (the
+ /// first encountered walking top→bottom), or `None` if none are present. Used to
+ /// pick the single window the overlay should pin just above so it covers every
+@@ -1423,18 +1416,39 @@ fn win_z_order_placement(has_live_target: bool) -> WinZOrderPlacement {
+ #[cfg(target_os = "windows")]
+ unsafe fn topmost_of(ids: &[u64]) -> Option<u64> {
+     use windows::Win32::Foundation::HWND;
+-    use windows::Win32::UI::WindowsAndMessaging::{GetTopWindow, GetWindow, GW_HWNDNEXT};
++    use windows::Win32::UI::WindowsAndMessaging::{
++        GetAncestor, GetTopWindow, GetWindow, IsWindowVisible, GA_ROOTOWNER, GW_HWNDNEXT,
++    };
+     if ids.is_empty() {
+         return None;
+     }
++    // A pinned dialog and its popups share the same ultimate owner. Distinct
++    // documents in one process remain separate families; never match by pid.
++    let roots: Vec<u64> = ids
++        .iter()
++        .map(|id| {
++            let owner = GetAncestor(HWND(*id as *mut _), GA_ROOTOWNER);
++            if owner.0.is_null() {
++                *id
++            } else {
++                owner.0 as u64
++            }
++        })
++        .collect();
+     let mut h = GetTopWindow(None).unwrap_or(HWND(std::ptr::null_mut()));
+     while !h.0.is_null() {
+-        if ids.contains(&(h.0 as u64)) {
++        let owner = GetAncestor(h, GA_ROOTOWNER);
++        if is_driven_window_family(
++            h.0 as u64,
++            owner.0 as u64,
++            IsWindowVisible(h).as_bool(),
++            &roots,
++        ) {
+             return Some(h.0 as u64);
+         }
+         h = GetWindow(h, GW_HWNDNEXT).unwrap_or(HWND(std::ptr::null_mut()));
+     }
+-    ids.first().copied()
++    None
+ }
+ 
+ impl ZOrderEnforcer for WinZOrderEnforcer {
+@@ -1481,23 +1495,51 @@ impl ZOrderEnforcer for WinZOrderEnforcer {
+             //      `orderWindow:above:` / `StackMode::ABOVE` APIs.
+             //
+             match (
+-                win_z_order_placement(pinned_target.is_some()),
++                win_z_order_placement(
++                    pinned_target.is_some(),
++                    pinned_target
++                        .map(|h| GetWindowLongW(h, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0)
++                        .unwrap_or(false),
++                ),
+                 pinned_target,
+             ) {
+-                (WinZOrderPlacement::AboveTarget, Some(target)) => {
+-                    // Preserve the target-bound contract: normalize out of the
+-                    // topmost band, then insert exactly one slot above target.
+-                    let _ = SetWindowPos(
+-                        hwnd,
+-                        HWND_NOTOPMOST,
+-                        0,
+-                        0,
+-                        0,
+-                        0,
+-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+-                    );
++                (
++                    placement @ (WinZOrderPlacement::AboveTarget
++                    | WinZOrderPlacement::AboveTopmostTarget),
++                    Some(target),
++                ) => {
++                    // Match only this family's active band. An owned menu can be
++                    // topmost; a normal overlay cannot paint above it. Demote
++                    // again on dismissal so other foreground apps stay above us.
++                    let topmost = placement == WinZOrderPlacement::AboveTopmostTarget;
++                    let overlay_topmost =
++                        GetWindowLongW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0;
++                    if topmost != overlay_topmost {
++                        let _ = SetWindowPos(
++                            hwnd,
++                            if topmost {
++                                HWND_TOPMOST
++                            } else {
++                                HWND_NOTOPMOST
++                            },
++                            0,
++                            0,
++                            0,
++                            0,
++                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
++                        );
++                    }
+                     let prev = GetWindow(target, GW_HWNDPREV).unwrap_or(HWND(std::ptr::null_mut()));
+-                    let insert_after = if !prev.0.is_null() { prev } else { HWND_TOP };
++                    if prev == hwnd {
++                        return;
++                    }
++                    let insert_after = if !prev.0.is_null() {
++                        prev
++                    } else if topmost {
++                        HWND_TOPMOST
++                    } else {
++                        HWND_TOP
++                    };
+                     let _ = SetWindowPos(
+                         hwnd,
+                         insert_after,
+@@ -1554,9 +1596,12 @@ mod tests {
+ 
+     #[test]
+     fn windows_z_order_branch_tracks_live_target_presence() {
+-        assert_eq!(win_z_order_placement(true), WinZOrderPlacement::AboveTarget);
+         assert_eq!(
+-            win_z_order_placement(false),
++            win_z_order_placement(true, false),
++            WinZOrderPlacement::AboveTarget
++        );
++        assert_eq!(
++            win_z_order_placement(false, false),
+             WinZOrderPlacement::ForceFrontNonTopmost
+         );
+     }
+diff --git a/libs/cua-driver/rust/crates/platform-windows/src/overlay/window_family.rs b/libs/cua-driver/rust/crates/platform-windows/src/overlay/window_family.rs
+new file mode 100644
+index 000000000..54faa3db7
+--- /dev/null
++++ b/libs/cua-driver/rust/crates/platform-windows/src/overlay/window_family.rs
+@@ -0,0 +1,70 @@
++//! Overlay policy for the exact driven Windows ownership family. No app names,
++//! menu classes or pixel assumptions; native adapters supply observed facts.
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(super) enum WinZOrderPlacement {
++    AboveTarget,
++    AboveTopmostTarget,
++    ForceFrontNonTopmost,
++}
++
++pub(super) fn win_z_order_placement(
++    has_live_target: bool,
++    target_topmost: bool,
++) -> WinZOrderPlacement {
++    if !has_live_target {
++        WinZOrderPlacement::ForceFrontNonTopmost
++    } else if target_topmost {
++        WinZOrderPlacement::AboveTopmostTarget
++    } else {
++        WinZOrderPlacement::AboveTarget
++    }
++}
++
++pub(super) fn is_driven_window_family(
++    window_id: u64,
++    root_owner: u64,
++    visible: bool,
++    roots: &[u64],
++) -> bool {
++    visible && (roots.contains(&window_id) || roots.contains(&root_owner))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn includes_owned_popup_and_nested_dialog_surfaces() {
++        assert!(is_driven_window_family(20, 10, true, &[10]));
++        assert!(is_driven_window_family(30, 10, true, &[10]));
++    }
++    #[test]
++    fn rejects_unrelated_main_windows_and_their_popups() {
++        assert!(!is_driven_window_family(40, 50, true, &[10]));
++        assert!(!is_driven_window_family(50, 50, true, &[10]));
++    }
++    #[test]
++    fn rejects_hidden_owned_windows() {
++        assert!(!is_driven_window_family(20, 10, false, &[10]));
++    }
++    #[test]
++    fn includes_each_live_driven_root() {
++        assert!(is_driven_window_family(10, 10, true, &[10, 50]));
++        assert!(is_driven_window_family(50, 50, true, &[10, 50]));
++    }
++    #[test]
++    fn returns_to_normal_band_when_the_topmost_popup_dismisses() {
++        assert_eq!(
++            win_z_order_placement(true, true),
++            WinZOrderPlacement::AboveTopmostTarget
++        );
++        assert_eq!(
++            win_z_order_placement(true, false),
++            WinZOrderPlacement::AboveTarget
++        );
++        assert_eq!(
++            win_z_order_placement(false, true),
++            WinZOrderPlacement::ForceFrontNonTopmost
++        );
++    }
++}

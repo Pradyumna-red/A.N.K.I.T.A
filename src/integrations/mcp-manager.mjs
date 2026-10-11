@@ -16,6 +16,8 @@ import { TierPolicy, TIER_AUTO, TIER_LABELS, heuristicTier, resolveTier } from "
  */
 
 const PREFIX = "mcp__";
+// Both startup stages report the same transport failure to callers.
+const MCP_STARTUP_CLOSED = 'MCP connection closed during startup';
 
 /**
  * How much of a request one MCP server's tool list may occupy before it is
@@ -88,6 +90,19 @@ export class McpManager {
     // The authoritative set of open clients, so teardown cannot be defeated by
     // anyone (including a future refactor) fiddling with `servers`.
     this._clients = new Set();
+    this.connectionSetups = new Map(); // Host-owned per-server setup reapplied before any replacement transport is exposed.
+    this.pendingConnections = new Map(); // Preparing clients stay private and cancellable until host setup finishes.
+  }
+
+  setConnectionSetup(id, setup) { this.connectionSetups.set(slug(id), setup); }
+  isConnecting(id) { return this.pendingConnections.has(slug(id)); }
+
+  async cancelConnection(id) {
+    const pending = this.pendingConnections.get(slug(id));
+    if (!pending) return false;
+    await pending.client.close();
+    await pending.done;
+    return true;
   }
 
   get connectedIds() {
@@ -108,6 +123,13 @@ export class McpManager {
     }
     const existing = this.servers.get(serverId);
     if (existing) return existing;
+    const preparing = this.pendingConnections.get(serverId);
+    if (preparing) {
+      await preparing.done;
+      signal?.throwIfAborted();
+      if (preparing.error) throw preparing.error;
+      return preparing.record;
+    }
 
     const client = new McpClient({
       id: serverId,
@@ -140,27 +162,37 @@ export class McpManager {
     });
 
     const cancel = () => { void client.close(); };
+    let finish;
+    const pending = { client, done: new Promise(resolve => { finish = resolve; }) };
+    this.pendingConnections.set(serverId, pending);
     this._clients.add(client);
     signal?.addEventListener('abort', cancel, { once: true });
     try {
       await client.connect();
       signal?.throwIfAborted();
-      if (client.closed) throw new Error('MCP connection closed during startup');
+      if (client.closed) throw new Error(MCP_STARTUP_CLOSED);
+      const allowed = Array.isArray(allowedTools) ? new Set(allowedTools) : null;
+      const record = { id: serverId, command, args, env, transport, url, headers, trusted, alwaysOn, synthetic, hidden, client,
+        // Refreshes keep the same capability ceiling; new upstream tools never silently widen it.
+        get tools() { return allowed ? client.tools.filter(tool => allowed.has(tool.name)) : client.tools; } };
+      await this.connectionSetups.get(serverId)?.(record, { signal });
+      signal?.throwIfAborted();
+      if (client.closed) throw new Error(MCP_STARTUP_CLOSED);
+      this.servers.set(serverId, record);
+      pending.record = record;
+      this.log(`connected ${serverId} (${client.tools.length} tool(s))`);
+      this.onChange?.(this);
+      return record;
     } catch (error) {
+      pending.error = error;
       await client.close();
       this._clients.delete(client);
       throw error;
-    } finally { signal?.removeEventListener('abort', cancel); }
-
-    const allowed = Array.isArray(allowedTools) ? new Set(allowedTools) : null;
-    const record = { id: serverId, command, args, env, transport, url, headers, trusted, alwaysOn, synthetic, hidden, client,
-      // Refreshes keep the same capability ceiling; new upstream tools never silently widen it.
-      get tools() { return allowed ? client.tools.filter(tool => allowed.has(tool.name)) : client.tools; } };
-    this.servers.set(serverId, record);
-    this._clients.add(client);
-    this.log(`connected ${serverId} (${client.tools.length} tool(s))`);
-    this.onChange?.(this);
-    return record;
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+      this.pendingConnections.delete(serverId);
+      finish();
+    }
   }
 
   async disconnect(id) {
@@ -383,10 +415,12 @@ export class McpManager {
    */
   async closeAll() {
     const clients = [...this._clients];
+    const pending = [...this.pendingConnections.values()];
     const ids = [...this.servers.keys()];
     this.servers.clear();
     this._clients.clear();
     await Promise.all(clients.map((c) => c.close().catch(() => {})));
+    await Promise.all(pending.map(connection => connection.done));
     return ids;
   }
 }

@@ -1,6 +1,6 @@
 # Windows computer use
 
-ANKITA can read and use apps on the current Windows desktop through the external Cua Driver MCP service. The model and task loop stay in ANKITA; input, accessibility and capture stay in the installed driver. No dependency, installer, driver upgrade or second agent engine is added.
+ANKITA can read and use apps on the current Windows desktop through the external Cua Driver MCP service. The model and task loop stay in ANKITA; input, accessibility and capture stay in the external driver. The initial integration reused the installed binary. The later owned-popup fix below builds a reviewed source correction to that same service; no second input or agent engine is added.
 
 ## Start and stop
 
@@ -8,6 +8,7 @@ ANKITA can read and use apps on the current Windows desktop through the external
 2. Open **Plugins → Connected apps → Computer Use**. ANKITA probes the local manifest, shows the detected driver and does not connect on startup.
 3. Click **Connect Computer Use**, then ask ANKITA to use an app. Connected native desktop actions run without per-action approval prompts. **Driver location** accepts an executable path when runtime discovery cannot find it; `ANKITA_COMPUTER_DRIVER` is also supported.
 4. **Check connection** checks the driver. **Stop Computer Use** aborts startup, waits for driver teardown, and disables the saved connection while keeping launched apps open. Connect again explicitly for another session.
+5. **Show pointer** is on by default. The installed driver's animated arrow follows ANKITA's native actions. Turn it off to hide the arrow while actions stay connected; the choice survives reconnecting. Stop ends the owned cursor session and hides the arrow.
 
 Discovery first tries the executable on PATH, then probes the official installer location relative to the runtime's LOCALAPPDATA. The driver's machine-readable manifest supplies its command, arguments and version. Only native tools advertised by that installed version and named in ANKITA's capability ceiling are exposed. Browser, maintenance, clipboard and replay tools are excluded; ANKITA's existing browser path remains available.
 
@@ -25,7 +26,7 @@ MCP screenshots now reach the existing image message wire, bounded to six images
 
 ## Verification — 2026-10-11
 
-Installed Cua Driver **0.20.0** exposed **27 native tools**. No newer-version features were assumed. Reproduction commands from the repository root:
+The initial implementation exposed **27 native tools** from installed Cua Driver **0.20.0**. The animated-pointer follow-up below reserves session start/end for the host, leaving **25 model tools**. No newer-version features were assumed. Reproduction commands from the repository root:
 
 ```powershell
 node --test --test-concurrency=1 test/desktop/computer-use.test.mjs test/desktop/browser-skill-loading.test.mjs test/integrations/mcp-startup-cancel.test.mjs test/integrations/mcp-images.test.mjs
@@ -51,6 +52,42 @@ npm run desktop:build
 - Final packaged production Electron + hosted-model repeat: `{"completed":true,"approvals":0}`. Fresh Notepad readback returned `[0] Edit "Text Editor" [value="hi" id=15 actions=[set_value,scroll]]`, together with complete snapshot/control tokens. The model confirmed the requested text only after that readback. After the test desktop closed, the launched Notepad process remained alive. No existing document was edited or saved.
 - Updated local Windows package left ready with the user's actual profile: `{"packaged":true,"version":"2.5.2","mainRenderer":true,"driverFound":true,"connected":true,"nativeTools":27,"healthChecked":true,"pageErrors":[]}`. This is a verified unpacked development build, not a newly published installer or release.
 
+## Animated pointer and styled controls — 2026-10-11
+
+The user approved a visible animated arrow by default, a Show pointer switch and hiding it on Stop, then requested styling to match the desktop app. The Computer Use card now uses the existing companion palette and type, a connection status badge, grouped Connect/Check/Stop controls, a styled checkbox switch, an expandable driver location and inline feedback. Scoped CSS includes keyboard focus, reduced-motion support and stacked controls at narrow widths. The arrow graphic in the settings card is a static illustration; actual desktop action animation comes from Cua Driver's [native cursor overlay](https://cua.ai/docs/cua-driver/guides/operate).
+
+Cursor lifecycle/configuration tools stay host-owned. The controller starts one uniquely named transport-owned cursor session, applies the saved visibility setting before exposing native tools, and pins desktop Agent calls to that session only when their actual schemas advertise a session field. The driver acknowledges visibility before its UI thread applies it, so the controller reads actual cursor state within a bounded two-second budget. Polling pins the original client/session and rejects Stop/reconnection before and after RPCs. A generic MCP reload repeats setup. Preparing transports remain private; concurrent Connect requests wait for the same preparation. Stop cancels pending generic reloads as well as panel startup, and overlapping Stop requests share cleanup. Older drivers without all cursor controls remain usable with an unsupported-pointer hint.
+
+- New pointer/lifecycle regressions: **16 passed**; latest controller/startup set: **27 passed, 0 failed**, exit 0, **7,307.7783 ms**. Failure/setup, session-schema compatibility, preference persistence, delayed visibility acknowledgement, cancellation during readback, engine-wide shutdown after cursor errors and real stdio reload/cancel/overlapping-Stop behavior are covered.
+- Review findings were reproduced before their fixes: a generic reload finished as `connected` after Stop instead of `cancelled`; preparing tools were exposed (`true !== false`); overlapping Stop returned `rejected,fulfilled` instead of `fulfilled,fulfilled`; an immediate Connect/Stop returned `connected` instead of `cancelled`. All four regressions now pass. Cursor teardown errors cannot skip shutdown of jobs, channels and other connections.
+- Latest installed-driver action through production Agent: `{"ok":true,"modelIdentifiersDelivered":true,"pointerEnabled":true,"cursorAnimationFrame":3,"approvals":0,"independentReadback":{"note":"ANKITA native desktop round trip","status":"Action confirmed"},"stopped":true}`. `set_value` **10 ms**, `click` **125 ms** in that controlled run; these are action latencies, not a whole-task benchmark.
+- Styled shipped panel + real controller + installed driver: `{"ok":true,"realController":true,"connect":true,"pointerDefaultOn":true,"pointerHideShow":true,"pointerReloadHidden":true,"pointerSessionEnded":true,"health":true,"stop":true,"pageErrors":0}`. The panel harness uses a loopback IPC bridge; the native driver transport is real.
+- Packaged card visually inspected at full width and 760/480-pixel windows. Content/scroll widths matched at **626/626** and **350/350**, the switch used a custom 36-pixel appearance, keyboard focus was visible and reduced-motion duration was **0.00001 s**. TypeScript and the **371-module** renderer build passed. This packaging check preceded the final polling-cancellation guard; the real-controller/live checks above include it.
+- The earlier full run before the last lifecycle/style changes reported **1,155 tests, 1,153 passed, 1 failed, 1 skipped**, **575,468.2968 ms**. The unchanged browser readiness check failed at `test/tools/browser-login-readiness.test.mjs:87` (`error !== ready`); its entire file reran **9/9**, exit 0. The cause of that run-specific failure was not established; no browser implementation was changed.
+- A later run reported **1,159 tests, 1,156 passed, 2 failed, 1 skipped**, **668,381.6415 ms**: unchanged job-EOF and worker-watchdog timing assertions. Both entire files reran serially **23/23**, exit 0. Their run-specific causes were not established.
+- Latest full serial run, including the final polling-cancellation guard: **1,162 tests, 1,161 passed, 0 failed, 1 skipped**, **608,661.1904 ms**, exit 0. The one skip is the Windows-inapplicable POSIX executable-permission case.
+
+## Native menus and owned popups — 2026-10-11
+
+The user supplied a live screenshot of the arrow behind Notepad's File menu. Independent native enumeration reproduced an owned, titleless `#32768` menu at layer **0**, its shadow at **1**, the Cua overlay at **2**, and Notepad at **3** (lower is visually higher). The menu's ultimate owner was the exact Notepad window and its extended style included `WS_EX_TOPMOST`; the overlay was in the normal band. This is a native-driver ownership/band problem, not renderer CSS. Saving can work while the arrow is hidden.
+
+The reviewed external source change follows visible native ownership families, matches the highest owned surface's current band, and returns to the normal band after dismissal. It reevaluates layering while the arrow rests without repainting. It preserves non-activation and click-through; it never selects unrelated main windows merely because they share a process. Build source, MIT attribution, revision, lockfile preservation and hash receipts are documented in [the driver source notes](../../vendor/cua-driver/README.md). It retains the installed 0.20.0 MCP contract rather than introducing a second input service.
+
+- Five ownership/band regressions compiled and executed against the actual Rust policy module with the available static test runtime: old behavior **3 passed, 2 failed** (`owned popup` and `AboveTarget != AboveTopmostTarget`); corrected behavior **5 passed, 0 failed**. This checks the policy, not the full Win32 adapter.
+- The permanent live Notepad regression failed against the unmodified driver with `AssertionError: the arrow must paint above the owned dropdown`. Its actions used production Agent/MCP, fresh accessibility targets and a unique temporary document. The final input/click proof will use the built corrected service plus independent native layering and saved-file readback.
+- Full local driver compilation was blocked by the incomplete Visual Studio installation: missing required Spectre runtime libraries and dynamic `msvcrt.lib`. The Windows review workflow builds the same pinned service with the required runtime component. No compiler installation or official driver replacement was performed on the user's desktop. Build completion and live after-fix verification are pending at this checkpoint.
+- Sonatype's scanner was unavailable. Official pinned source, an unchanged dependency lockfile and build receipts establish provenance; they do not establish a vulnerability scan.
+
+Reproduction:
+
+```powershell
+node --test --test-concurrency=1 test/desktop/computer-pointer.test.mjs test/desktop/computer-use.test.mjs test/integrations/mcp-startup-cancel.test.mjs
+node scripts/verify-computer-panel.mjs
+node scripts/verify-computer-target.mjs
+npm test
+npm run desktop:pack
+```
+
 Uncovered: installing desktop with a clean user profile; elevated apps, secure desktop, mixed-DPI/multiple monitors, future driver helper-process behavior and broad app compatibility. The hosted model check covers the requested Notepad task, not arbitrary desktop tasks. Browser adapter code was not changed; the existing browser guide's real Playwright path and existing Chrome contracts remain covered by their suites. There is no worldwide computer-use quality benchmark claim.
 
-Literal review: runtime identifiers and product name share one Electron contract; provider tool names, platform, manifest arguments, installer-relative probe, limits, timeout units and guidance live in named constants. The default tool reply byte budget is shared with configuration. Protocol discriminator/encoding constants are shared within image handling. UI copy and fixture-only target labels remain local display/test text. Actual paths, pid/window tokens, ports and driver versions come from runtime discovery or temporary fixtures.
+Literal review: runtime identifiers and product name share one Electron contract; provider tool names, platform, manifest arguments, installer-relative probe, limits, timeout units and guidance live in named constants. Pointer configuration/session fields and cursor tools are shared constants; the local cleanup timeout has a millisecond unit and shutdown rationale. Layout lengths and feedback motion use scoped CSS tokens; structural percentages, border widths, opacity, type weight and responsive breakpoints are design rules. The default tool reply byte budget is shared with configuration. Protocol discriminator/encoding constants are shared within image handling. UI copy and fixture-only target labels remain local display/test text. Actual paths, pid/window tokens, ports and driver versions come from runtime discovery or temporary fixtures.

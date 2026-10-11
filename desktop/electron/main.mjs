@@ -556,6 +556,7 @@ ipcMain.handle('engine:invoke', async (event, action, payload) => {
     case COMPUTER_USE_ACTIONS.connect: return current.computerUse.connect(payload);
     case COMPUTER_USE_ACTIONS.check: return current.computerUse.check();
     case COMPUTER_USE_ACTIONS.stop: return current.computerUse.stop();
+    case COMPUTER_USE_ACTIONS.pointer: return current.computerUse.setPointer(payload);
     case 'browserPluginSetEnabled': return current.browserPlugins.setEnabled(payload);
     case 'browserPluginSetHeadless': return current.browserPlugins.setHeadless(payload);
     case 'browserPluginSiteRule': return current.browserPlugins.changeSiteRule(payload);

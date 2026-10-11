@@ -8,7 +8,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { McpManager } from '../src/integrations/mcp-manager.mjs';
 import { DesktopComputerUse } from '../desktop/electron/computer-use.mjs';
-import { COMPUTER_MCP_ID, computerObservationMetadata } from '../src/integrations/computer-use.mjs';
+import { Agent } from '../src/core/agent.mjs';
+import { COMPUTER_MCP_ID, COMPUTER_DIRECT_CONFIG, COMPUTER_CURSOR_TOOLS, computerObservationMetadata } from '../src/integrations/computer-use.mjs';
 
 const TARGET_TIMEOUT_MS = 20_000; // Milliseconds; bounded fixture startup / independent state readback.
 const TEST_NOTE = 'ANKITA native desktop round trip'; // Test-only value, entered only in the disposable fixture.
@@ -63,13 +64,27 @@ try {
   snapshot = await call('get_window_state', { ...target, include_screenshot: false });
   const buttons = snapshot.elements.filter(element => element.label === 'Confirm action' && element.role === 'Button');
   assert.equal(buttons.length, 1); const button = buttons[0];
-  assert.ok(button); await call('click', { ...target, element_token: button.element_token });
+  assert.ok(button);
+  let approvals = 0;
+  const agent = Object.create(Agent.prototype);
+  Object.assign(agent, { mcp: manager, config: { [COMPUTER_DIRECT_CONFIG]: true }, client: {}, messages: [], confirm: () => { approvals++; return false; } });
+  const started = performance.now();
+  const clicked = await agent.runMcpToolCall({ id: 'fixture-click', function: { name: `mcp__${COMPUTER_MCP_ID}__click`,
+    arguments: JSON.stringify({ ...target, element_token: button.element_token, session: 'model-picked-fixture-session' }) } });
+  timings.click = Math.round(performance.now() - started);
+  assert.doesNotMatch(clicked, /^Error|denied permission/i);
+  assert.equal(approvals, 0);
+  const cursor = await manager.servers.get(COMPUTER_MCP_ID).client.callTool(COMPUTER_CURSOR_TOOLS.state, { session: service.pointerSession });
+  assert.equal(cursor.isError, false);
+  assert.equal(cursor.raw.structuredContent.enabled, true);
+  assert.ok(cursor.raw.structuredContent.visual_state.frame > 0, 'real native action advances the built-in cursor animation');
   await call('get_window_state', { ...target, include_screenshot: false });
   const readback = waitFor(value => value.appOwnedState, 'readback'); child.stdin.write('read\n');
   const { appOwnedState } = await readback;
   assert.equal(appOwnedState.note, TEST_NOTE); assert.equal(appOwnedState.status, 'Action confirmed');
   await service.stop();
-  console.log(JSON.stringify({ ok: true, modelIdentifiersDelivered: true, independentReadback: appOwnedState, stopped: !manager.has(COMPUTER_MCP_ID), timings }, null, 2));
+  console.log(JSON.stringify({ ok: true, modelIdentifiersDelivered: true, pointerEnabled: true, cursorAnimationFrame: cursor.raw.structuredContent.visual_state.frame, approvals,
+    independentReadback: appOwnedState, stopped: !manager.has(COMPUTER_MCP_ID), timings }, null, 2));
 } finally {
   for (const entry of pending) clearTimeout(entry.timer);
   await manager.closeAll(); child.kill(); fs.rmSync(directory, { recursive: true, force: true });

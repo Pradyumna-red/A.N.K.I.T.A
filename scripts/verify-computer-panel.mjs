@@ -7,8 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 import { chromium } from 'playwright';
 import { McpManager } from '../src/integrations/mcp-manager.mjs';
+import { McpStore } from '../src/integrations/mcp-store.mjs';
 import { DesktopComputerUse } from '../desktop/electron/computer-use.mjs';
 import { COMPUTER_USE_ACTIONS } from '../desktop/shared/computer-use.mjs';
+import { COMPUTER_CURSOR_TOOLS, COMPUTER_MCP_ID } from '../src/integrations/computer-use.mjs';
 
 const HOST = '127.0.0.1'; // Loopback only; the temporary UI harness is never exposed to other machines.
 const PANEL_PATH = '/computer-use'; // Test-only page, rendering the shipped component.
@@ -19,6 +21,7 @@ const service = new DesktopComputerUse({ mcp: manager, mcpFile: path.join(direct
 const actions = {
   [COMPUTER_USE_ACTIONS.overview]: () => service.overview(), [COMPUTER_USE_ACTIONS.connect]: args => service.connect(args),
   [COMPUTER_USE_ACTIONS.check]: () => service.check(), [COMPUTER_USE_ACTIONS.stop]: () => service.stop(),
+  [COMPUTER_USE_ACTIONS.pointer]: args => service.setPointer(args),
 };
 const renderer = fileURLToPath(new URL('../desktop/renderer/', import.meta.url));
 const vite = await createViteServer({ configFile: false, root: renderer, server: { middlewareMode: true, hmr: false, fs: { allow: [path.dirname(path.dirname(renderer))] } }, appType: 'custom' });
@@ -56,13 +59,35 @@ try {
   await connect.waitFor({ state: 'visible' }); assert.equal(await connect.isEnabled(), true);
   await connect.click(); await page.getByRole('status').filter({ hasText: 'Connected. Ask ANKITA' }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Connected', exact: true }).isDisabled(), true);
+  const pointer = page.getByRole('checkbox', { name: 'Show pointer' });
+  assert.equal(await pointer.isChecked(), true);
+  let client = manager.servers.get(COMPUTER_MCP_ID).client;
+  const cursorState = async () => (await client.callTool(COMPUTER_CURSOR_TOOLS.state, { session: service.pointerSession })).raw.structuredContent;
+  assert.equal((await cursorState()).enabled, true);
+  await pointer.uncheck(); await page.getByRole('status').filter({ hasText: 'Pointer hidden.' }).waitFor();
+  assert.equal((await cursorState()).enabled, false);
+  assert.equal((await service.overview()).connected, true);
+  const previousClient = client;
+  const previousSession = service.pointerSession;
+  const saved = new McpStore(service.mcpFile).load().find(COMPUTER_MCP_ID);
+  await manager.disconnect(COMPUTER_MCP_ID); await manager.connect(saved);
+  client = manager.servers.get(COMPUTER_MCP_ID).client;
+  assert.notEqual(client, previousClient); assert.notEqual(service.pointerSession, previousSession);
+  assert.equal((await cursorState()).enabled, false);
+  await pointer.check(); await page.getByRole('status').filter({ hasText: 'Pointer shown' }).waitFor();
+  assert.equal((await cursorState()).enabled, true);
+  let ended;
+  const callTool = client.callTool.bind(client);
+  client.callTool = async (...args) => { const result = await callTool(...args); if (args[0] === COMPUTER_CURSOR_TOOLS.end) ended = result; return result; };
   await page.getByRole('button', { name: 'Check connection', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Connection checked.' }).waitFor();
   await page.getByRole('button', { name: 'Stop Computer Use', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Computer Use stopped.' }).waitFor();
   assert.equal(await connect.isEnabled(), true); assert.deepEqual(errors, []);
   assert.equal((await service.overview()).connected, false);
-  console.log(JSON.stringify({ ok: true, realController: true, connect: true, health: true, stop: true, pageErrors: errors.length }));
+  assert.equal(ended?.isError, false);
+  assert.equal(ended.raw.structuredContent.active, false);
+  console.log(JSON.stringify({ ok: true, realController: true, connect: true, pointerDefaultOn: true, pointerHideShow: true, pointerReloadHidden: true, pointerSessionEnded: true, health: true, stop: true, pageErrors: errors.length }));
 } finally {
   await browser?.close(); await service.close(); await manager.closeAll(); await vite.close();
   server.closeAllConnections(); if (server.listening) await new Promise(resolve => server.close(resolve));

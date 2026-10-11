@@ -1,0 +1,95 @@
+/* Desktop control surface: reuse the companion palette/type, with scoped layout tokens.
+   Lengths are CSS pixels; one card groups connection, pointer and driver controls. */
+.computer-use-card {
+  --computer-space: 20px;
+  --computer-gap: 12px;
+  --computer-radius: 14px;
+  --computer-control-radius: 8px;
+  --computer-control-height: 36px;
+  --computer-body-size: 12px;
+  --computer-small-size: 11px;
+  --computer-pointer-width: 265px;
+  --computer-switch-width: 36px;
+  --computer-switch-height: 22px;
+  --computer-switch-knob: 16px;
+  --computer-switch-inset: 2px;
+  --computer-switch-travel: 14px;
+  --computer-motion: 160ms; /* Milliseconds; only user-triggered switch and control feedback. */
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--computer-radius);
+  background: var(--sidebar);
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--companion-font);
+}
+.computer-use-header { display: flex; align-items: center; gap: var(--computer-gap); padding: var(--computer-space); border-bottom: 1px solid var(--edge); }
+.computer-use-mark { display: grid; place-items: center; flex-shrink: 0; width: calc(var(--computer-control-height) + var(--computer-switch-inset)); height: calc(var(--computer-control-height) + var(--computer-switch-inset)); border-radius: var(--computer-control-radius); background: var(--surface); color: var(--text-soft); }
+.computer-use-title { min-width: 0; flex: 1; }
+.computer-use-title h2 { margin: 0; font-size: calc(var(--computer-body-size) + var(--computer-switch-inset)); font-weight: 600; line-height: 1.5; }
+.computer-use-title p { margin: var(--computer-switch-inset) 0 0; color: var(--text-dim); font-size: var(--computer-small-size); line-height: 1.5; }
+.computer-use-status { display: inline-flex; align-items: center; gap: calc(var(--computer-gap) / 2); flex-shrink: 0; padding: calc(var(--computer-gap) / 2) var(--computer-gap); border: 1px solid var(--edge); border-radius: var(--computer-control-height); font-size: var(--computer-small-size); color: var(--text-soft); background: var(--surface); }
+.computer-use-status i { width: calc(var(--computer-gap) / 2); height: calc(var(--computer-gap) / 2); border-radius: 50%; background: currentColor; }
+.computer-use-status[data-connected="true"] { color: var(--success); background: var(--success-soft); border-color: var(--success-edge); }
+.computer-use-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, var(--computer-pointer-width)); gap: var(--computer-space); padding: var(--computer-space); }
+.computer-use-controls { min-width: 0; align-self: center; }
+.computer-use-description { max-width: 60ch; margin: 0; color: var(--text-soft); font-size: var(--computer-body-size); line-height: 1.65; }
+.computer-use-capabilities { display: flex; flex-wrap: wrap; gap: calc(var(--computer-gap) / 2) var(--computer-gap); margin-top: var(--computer-gap); font-size: var(--computer-small-size); color: var(--text-dim); }
+.computer-use-capabilities span { display: inline-flex; align-items: center; gap: calc(var(--computer-gap) / 2); }
+.computer-use-actions { display: flex; flex-wrap: wrap; gap: calc(var(--computer-gap) / 2); margin-top: var(--computer-space); }
+.computer-use-button { display: inline-flex; align-items: center; justify-content: center; gap: calc(var(--computer-gap) / 2); min-height: var(--computer-control-height); padding: calc(var(--computer-gap) / 2) var(--computer-gap); border: 1px solid var(--edge-strong); border-radius: var(--computer-control-radius); background: var(--surface); color: var(--text-soft); font: 500 var(--computer-small-size)/1.4 var(--companion-font); cursor: pointer; transition: background var(--computer-motion), border-color var(--computer-motion); }
+.computer-use-button:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--text-dim); color: var(--text); }
+.computer-use-button.primary { background: var(--text); color: var(--canvas); border-color: var(--text); }
+.computer-use-button.primary:hover:not(:disabled) { background: var(--text-soft); border-color: var(--text-soft); color: var(--canvas); }
+.computer-use-button.primary:disabled { background: var(--surface); color: var(--text-dim); border-color: var(--edge); }
+.computer-use-button.stop { background: transparent; color: var(--danger); border-color: var(--danger-edge); }
+.computer-use-button.stop:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger); }
+.computer-use-button:disabled { opacity: .55; cursor: not-allowed; }
+.computer-use-pointer { display: flex; flex-direction: column; align-items: flex-start; gap: var(--computer-gap); padding: var(--computer-space); border: 1px solid var(--edge); border-radius: var(--computer-control-radius); background: var(--canvas); }
+.computer-use-pointer-mark { display: grid; place-items: center; width: var(--computer-control-height); height: var(--computer-control-height); color: var(--text-dim); background: var(--surface); border-radius: var(--computer-control-radius); }
+.computer-use-pointer-mark svg { width: var(--computer-switch-height); height: var(--computer-switch-height); }
+.computer-use-pointer[data-enabled="true"] .computer-use-pointer-mark { color: var(--gold-light); background: var(--accent-soft); }
+.computer-use-pointer-label { display: flex; align-items: center; gap: var(--computer-gap); width: 100%; cursor: pointer; }
+.computer-use-pointer-label > span { flex: 1; min-width: 0; }
+.computer-use-pointer-label strong { display: block; font-size: var(--computer-body-size); font-weight: 550; }
+.computer-use-pointer-label small, .computer-use-hint { display: block; margin-top: calc(var(--computer-gap) / 2); font-size: var(--computer-small-size); color: var(--text-dim); line-height: 1.5; }
+.computer-use-pointer-label input { appearance: none; flex-shrink: 0; position: relative; width: var(--computer-switch-width); height: var(--computer-switch-height); margin: 0; padding: 0; border: 1px solid var(--edge-strong); border-radius: var(--computer-switch-height); background: var(--surface-hover); cursor: pointer; transition: background var(--computer-motion), border-color var(--computer-motion); }
+.computer-use-pointer-label input::before { content: ''; position: absolute; inset-block-start: var(--computer-switch-inset); inset-inline-start: var(--computer-switch-inset); width: var(--computer-switch-knob); height: var(--computer-switch-knob); border-radius: 50%; background: var(--text); transition: transform var(--computer-motion); }
+.computer-use-pointer-label input:checked { background: var(--gold); border-color: var(--gold); }
+.computer-use-pointer-label input:checked::before { transform: translateX(var(--computer-switch-travel)); background: var(--canvas); }
+.computer-use-pointer-label input:disabled { opacity: .45; cursor: not-allowed; }
+.computer-use-driver { border-top: 1px solid var(--edge); font-size: var(--computer-small-size); }
+.computer-use-driver summary { display: flex; align-items: center; gap: calc(var(--computer-gap) / 2); padding: var(--computer-gap) var(--computer-space); color: var(--text-soft); list-style: none; cursor: pointer; }
+.computer-use-driver summary::-webkit-details-marker { display: none; }
+.computer-use-driver summary > span { flex: 1; }
+.computer-use-driver summary small { color: var(--text-dim); font-size: inherit; }
+.computer-use-driver summary > svg:last-child { transition: transform var(--computer-motion); }
+.computer-use-driver[open] summary > svg:last-child { transform: rotate(180deg); }
+.computer-use-driver-content { padding: 0 var(--computer-space) var(--computer-space); }
+.computer-use-driver-content label { display: block; margin-bottom: calc(var(--computer-gap) / 2); color: var(--text-soft); }
+.computer-use-driver-content input { width: 100%; min-height: var(--computer-control-height); padding: calc(var(--computer-gap) / 2) var(--computer-gap); border: 1px solid var(--edge-strong); border-radius: var(--computer-control-radius); background: var(--canvas); color: var(--text); font: inherit; }
+.computer-use-driver-content input::placeholder { color: var(--text-dim); }
+.computer-use-driver-content input:disabled { opacity: .6; }
+.computer-use-driver-content p { margin: calc(var(--computer-gap) / 2) 0 0; color: var(--text-dim); line-height: 1.5; }
+.computer-use-footnote { display: flex; align-items: center; gap: calc(var(--computer-gap) / 2); margin: 0; padding: 0 var(--computer-space) var(--computer-gap); color: var(--text-dim); font-size: var(--computer-small-size); line-height: 1.5; }
+.computer-use-feedback { display: flex; align-items: flex-start; gap: calc(var(--computer-gap) / 2); margin: 0; padding: var(--computer-gap) var(--computer-space); border-top: 1px solid var(--success-edge); color: var(--success); background: var(--success-soft); font-size: var(--computer-small-size); line-height: 1.6; overflow-wrap: anywhere; }
+.computer-use-feedback.error { border-color: var(--danger-edge); color: var(--danger); background: var(--danger-soft); }
+.computer-use-feedback > svg, .computer-use-footnote > svg { flex-shrink: 0; }
+.computer-use-feedback > svg { margin-top: var(--computer-switch-inset); }
+.computer-use-loading { padding: var(--computer-space); color: var(--text-dim); font-size: var(--computer-body-size); }
+.computer-use-card :is(button, summary, input):focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+/* CSS pixels; stack before the pointer and action controls become cramped. */
+@media (max-width: 800px) {
+  .computer-use-body { grid-template-columns: minmax(0, 1fr); }
+  .computer-use-pointer { flex-direction: row; align-items: center; }
+  .computer-use-pointer-mark { flex-shrink: 0; }
+}
+@media (max-width: 480px) {
+  .computer-use-header { flex-wrap: wrap; }
+  .computer-use-status { margin-left: calc(var(--computer-control-height) + var(--computer-gap)); }
+  .computer-use-driver summary small { display: none; }
+  .computer-use-actions { align-items: stretch; }
+  .computer-use-button { flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .computer-use-card :is(button, input, input::before, summary > svg) { transition: none; }
+}

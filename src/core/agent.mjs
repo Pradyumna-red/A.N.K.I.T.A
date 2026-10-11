@@ -27,7 +27,7 @@ import { browserScreenshotImage, MAX_BROWSER_SCREENSHOTS_PER_TURN } from '../../
 import { managedMcpSummaries, isBrowserMcpTool, MANAGED_BROWSER_REQUIRED } from '../integrations/browser-routing.mjs';
 import { parseToolName } from '../integrations/mcp-manager.mjs';
 import { attachMcpImages, MAX_MCP_IMAGES_PER_TURN, messagesForModel } from '../integrations/mcp-images.mjs';
-import { COMPUTER_MCP_ID, COMPUTER_DIRECT_CONFIG, COMPUTER_GUIDANCE, COMPUTER_READ_TOOLS, COMPUTER_TOOLS, computerObservationTargets, formatComputerTargets } from '../integrations/computer-use.mjs';
+import { COMPUTER_MCP_ID, COMPUTER_DIRECT_CONFIG, COMPUTER_POINTER_SESSION, COMPUTER_GUIDANCE, COMPUTER_READ_TOOLS, COMPUTER_TOOLS, computerObservationTargets, formatComputerTargets } from '../integrations/computer-use.mjs';
 import { BACKGROUND_JOB_PROMPT, BACKGROUND_BROWSER_PROMPT, DEFAULT_JOB_ALLOW, JOB_EXECUTION_COMPLETE, SCHEDULE_TASK_GUIDANCE } from '../automation/job-policy.mjs';
 
 const foregroundBrowserSpec = specs.find(spec => spec.function.name === 'browser');
@@ -911,6 +911,13 @@ export class Agent {
       return `Error: arguments were not valid JSON (${err.message}).`;
     }
 
+    const native = parseToolName(name);
+    const directComputer = this.config[COMPUTER_DIRECT_CONFIG] === true && native?.serverId === COMPUTER_MCP_ID && COMPUTER_TOOLS.includes(native.toolName);
+    const pointerSession = found.record?.[COMPUTER_POINTER_SESSION];
+    if (directComputer && pointerSession && found.tool?.inputSchema?.properties?.session) {
+      // A model-chosen session must not create another cursor outside the desktop's Show pointer setting.
+      args = { ...args, session: pointerSession };
+    }
     // Tier 3 is the only silent denial, and it is always an explicit blocklist
     // entry rather than a guess, so the model can be told exactly why.
     const decision = this.mcp.tierFor?.(name, args);
@@ -918,8 +925,6 @@ export class Agent {
       this.mcp.recordTierDecision?.(name, "denied");
       return `Error: ${decision.label} is blocked by the approval tiers. Do not retry it; ask the user whether the tier rule should change.`;
     }
-    const native = parseToolName(name);
-    const directComputer = this.config[COMPUTER_DIRECT_CONFIG] === true && native?.serverId === COMPUTER_MCP_ID && COMPUTER_TOOLS.includes(native.toolName);
     if (directComputer) this.mcp.recordTierDecision?.(name, 'allowed');
     if (!directComputer && this.mcp.needsApproval(name, args) && this.autoApprove !== true) {
       const detail = this.mcp.approvalDetail(name, args);

@@ -1,6 +1,9 @@
 // Provider identifiers and protocol names, kept here so setup, prompts and tests agree.
 export const COMPUTER_MCP_ID = 'ankita-computer';
 export const COMPUTER_DIRECT_CONFIG = 'desktopComputerUseDirect'; // Internal desktop-agent flag; explicit Connect authorizes native actions without repeated prompts.
+export const COMPUTER_POINTER_CONFIG = 'computerPointerEnabled'; // Boolean preference on this connection; absent means the requested visible default.
+export const COMPUTER_POINTER_SESSION = 'computerPointerSession'; // In-memory transport-owned session; keeps every desktop agent under the user's pointer preference.
+export const COMPUTER_CURSOR_TOOLS = Object.freeze({ start: 'start_session', end: 'end_session', enabled: 'set_agent_cursor_enabled', state: 'get_agent_cursor_state' }); // Driver-owned cursor lifecycle; UI controls stay outside the model's tool ceiling.
 export const COMPUTER_DRIVER_NAME = 'cua-driver';
 export const COMPUTER_DRIVER_ENV = 'ANKITA_COMPUTER_DRIVER';
 export const COMPUTER_SUPPORTED_PLATFORM = 'win32';
@@ -15,9 +18,12 @@ export const COMPUTER_READ_TOOLS = Object.freeze([
 export const COMPUTER_TOOLS = Object.freeze([
   ...COMPUTER_READ_TOOLS, 'launch_app', 'click', 'double_click',
   'right_click', 'type_text', 'set_value', 'press_key', 'hotkey', 'scroll', 'drag',
-  'invoke_menu', 'bring_to_front', 'set_window_frame', 'start_session', 'end_session',
+  'invoke_menu', 'bring_to_front', 'set_window_frame',
 ]); // Native desktop capabilities only; maintenance, clipboard, replay and browser tools stay outside this integration.
 export const COMPUTER_REQUEST_TIMEOUT_MS = 30_000; // Milliseconds; bounded native UIA calls on large applications.
+export const COMPUTER_CURSOR_CLEANUP_TIMEOUT_MS = 2_000; // Milliseconds; ending a local visual session must not delay stopping input for a full UIA request timeout.
+export const COMPUTER_CURSOR_STATE_TIMEOUT_MS = COMPUTER_CURSOR_CLEANUP_TIMEOUT_MS; // Milliseconds; the same bounded local-overlay budget applies to visibility confirmation.
+export const COMPUTER_CURSOR_STATE_POLL_MS = 40; // Milliseconds; allow the driver's UI thread to apply visibility without a busy polling loop.
 export const COMPUTER_DISCOVERY_TIMEOUT_MS = 5_000; // Milliseconds; manifest is local and must not stall Plugins.
 export const COMPUTER_MANIFEST_MAX_BYTES = 1024 * 1024; // Bytes; CLI metadata only, never screenshot payloads.
 export const COMPUTER_TARGET_LIMIT = 160; // Controls/observation; bounded target metadata for model context.
