@@ -36,7 +36,7 @@ export async function runLocalCommand(argv, { ask, write = text => console.log(t
     const rawPermissions = options['--permissions'] ?? await question('Access domains (files,network,shell,browser; blank for none): ');
     const example = options['--example'] ?? await question('One example input: ');
     const permissions = rawPermissions.split(',').map(value => value.trim()).filter(Boolean);
-    const target = scaffoldSkill({ name, permissions, example, root: options['--directory'] });
+    const target = scaffoldSkill({ name, permissions, example, root: options['--directory'], registerRoot: options['--directory'] !== undefined });
     write(`Created skill: ${target}`);
     return true;
   } finally { reader?.close(); }
