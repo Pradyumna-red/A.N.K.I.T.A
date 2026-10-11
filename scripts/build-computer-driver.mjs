@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runDriverBuild as run } from './lib/computer-driver-build.mjs';
+import { compileDriverExecutable, runDriverBuild as run } from './lib/computer-driver-build.mjs';
 import { createHash } from 'node:crypto';
 import { CONFIG_DIR } from '../src/core/config.mjs';
 import { COMPUTER_DRIVER_NAME, COMPUTER_SUPPORTED_PLATFORM } from '../src/integrations/computer-use.mjs';
@@ -10,7 +10,6 @@ const VENDOR_DIRECTORY = fileURLToPath(new URL('../vendor/cua-driver/', import.m
 const SOURCE = JSON.parse(fs.readFileSync(path.join(VENDOR_DIRECTORY, 'source.json'), 'utf8'));
 const DRIVER_DIRECTORY = path.join(CONFIG_DIR, 'computer-driver'); // External service build cache, outside Electron and the user's documents.
 const GIT_COMMAND = 'git'; // Resolved from PATH; missing developer tools fail before changing the saved MCP connection.
-const CARGO_COMMAND = 'cargo'; // Use the caller's configured Rust/MSVC environment; never install a compiler automatically.
 const EXECUTABLE_EXTENSION = '.exe'; // This source change targets Windows native window ownership.
 const BUILD_PROFILE = 'release'; // Optimized cursor rendering and native input, matching the official distribution.
 const BUILD_INFO_FILE = 'build-info.json'; // Local provenance receipt, including the executable and source-change hashes.
@@ -58,11 +57,8 @@ for (const change of changedFiles) {
 }
 const source = path.join(repository, SOURCE.sourceDirectory);
 const lockBefore = hash(path.join(source, 'Cargo.lock'));
-await run(CARGO_COMMAND, ['--version'], source);
-await run(CARGO_COMMAND, ['test', '--locked', '-p', 'platform-windows', '--lib', 'overlay::', '--', '--test-threads=1'], source);
-await run(CARGO_COMMAND, ['build', '--locked', '--profile', BUILD_PROFILE, '-p', COMPUTER_DRIVER_NAME], source);
+const executable = await compileDriverExecutable({ source, packageName: COMPUTER_DRIVER_NAME, profile: BUILD_PROFILE, executableExtension: EXECUTABLE_EXTENSION });
 if (hash(path.join(source, 'Cargo.lock')) !== lockBefore) throw new Error('Driver build changed its dependency lockfile');
-const executable = path.join(source, 'target', BUILD_PROFILE, COMPUTER_DRIVER_NAME + EXECUTABLE_EXTENSION);
 // Publish into the caller-selected external service directory; connecting it remains an explicit product action.
 fs.mkdirSync(output, { recursive: true });
 const installed = path.join(output, path.basename(executable));

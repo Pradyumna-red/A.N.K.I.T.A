@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][int]$TargetProcessId)
+param([Parameter(Mandatory=$true)][int]$TargetProcessId, [Parameter(Mandatory=$true)][int]$DriverProcessId)
 $ErrorActionPreference = 'Stop'
 # Read-only Win32 diagnostics: titleless native popups are omitted by list_windows.
 Add-Type -TypeDefinition @'
@@ -21,12 +21,12 @@ public static class ComputerWindowLayers {
     [DllImport(UserLibrary)] private static extern IntPtr GetAncestor(IntPtr window, uint relation);
     [DllImport(UserLibrary, EntryPoint="GetWindowLongW")] private static extern uint GetWindowLong(IntPtr window, int index);
     [DllImport(UserLibrary)] private static extern IntPtr GetForegroundWindow();
-    public static object Read(uint targetPid) {
+    public static object Read(uint targetPid, uint driverPid) {
         var windows = new List<object>(); int z = 0;
         EnumWindows((window, state) => {
             int currentZ = z++; uint pid; GetWindowThreadProcessId(window, out pid);
             var title = new StringBuilder(LabelCapacity); GetWindowText(window, title, LabelCapacity);
-            if (IsWindowVisible(window) && (pid == targetPid || title.ToString().StartsWith("Cua.AgentCursorOverlay"))) {
+            if (IsWindowVisible(window) && (pid == targetPid || pid == driverPid)) {
                 var cls = new StringBuilder(LabelCapacity); GetClassName(window, cls, LabelCapacity);
                 windows.Add(new { window_id=window.ToInt64(), pid, z=currentZ, title=title.ToString(), class_name=cls.ToString(),
                     owner=GetWindow(window, Owner).ToInt64(), root_owner=GetAncestor(window, RootOwner).ToInt64(), topmost=(GetWindowLong(window, ExtendedStyle) & Topmost) != 0 });
@@ -37,4 +37,4 @@ public static class ComputerWindowLayers {
     }
 }
 '@
-[ComputerWindowLayers]::Read($TargetProcessId) | ConvertTo-Json -Depth 4 -Compress
+[ComputerWindowLayers]::Read($TargetProcessId, $DriverProcessId) | ConvertTo-Json -Depth 4 -Compress

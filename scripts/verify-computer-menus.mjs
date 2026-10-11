@@ -11,6 +11,7 @@ import { Agent } from '../src/core/agent.mjs';
 import { DesktopComputerUse } from '../desktop/electron/computer-use.mjs';
 import { McpManager } from '../src/integrations/mcp-manager.mjs';
 import { COMPUTER_MCP_ID, COMPUTER_DIRECT_CONFIG, COMPUTER_CURSOR_TOOLS } from '../src/integrations/computer-use.mjs';
+import { computerOverlayWindow } from './lib/computer-menu-evidence.mjs';
 
 const MENU_SETTLE_MS = 160; // Milliseconds; two native overlay z-order ticks before independent readback.
 const DIAGNOSTIC_TIMEOUT_MS = 10_000; // Milliseconds; bounded read-only native window enumeration.
@@ -36,12 +37,14 @@ const observe = async (name, args = {}) => {
   assert.equal(result.isError, false, result.text);
   return result.raw.structuredContent;
 };
-const layers = async pid => {
-  const { stdout } = await runFile('powershell', ['-NoProfile', '-File', fileURLToPath(new URL('./fixtures/computer-window-layers.ps1', import.meta.url)), '-TargetProcessId', String(pid)], { windowsHide: true, timeout: DIAGNOSTIC_TIMEOUT_MS });
+const layers = async (pid, driverPid) => {
+  const { stdout } = await runFile('powershell', ['-NoProfile', '-File', fileURLToPath(new URL('./fixtures/computer-window-layers.ps1', import.meta.url)), '-TargetProcessId', String(pid), '-DriverProcessId', String(driverPid)], { windowsHide: true, timeout: DIAGNOSTIC_TIMEOUT_MS });
   return JSON.parse(stdout.trim());
 };
 try {
   await service.connect(option('--driver') ? { command: option('--driver') } : undefined);
+  const driverPid = manager.servers.get(COMPUTER_MCP_ID).client.child.pid;
+  assert.ok(Number.isInteger(driverPid) && driverPid > 0, 'layer evidence must identify the actual launched driver');
   const application = option('--app');
   await call('launch_app', { ...(application ? { path: application } : { name: DEFAULT_APP }), additional_arguments: [file] });
   const windows = await observe('list_windows');
@@ -65,9 +68,9 @@ try {
   snapshot = await state();
   assert.ok(snapshot.elements.some(element => element.role === 'MenuItem' && /^Save\t/.test(element.label)), 'File must actually open');
   await delay(MENU_SETTLE_MS);
-  const opened = await layers(target.pid);
+  const opened = await layers(target.pid, driverPid);
   const popup = opened.windows.find(window => window.root_owner === target.window_id && window.window_id !== target.window_id && window.topmost);
-  const overlay = opened.windows.find(window => window.title.startsWith('Cua.AgentCursorOverlay'));
+  const overlay = computerOverlayWindow(opened.windows, driverPid);
   assert.ok(popup && overlay, 'independent native enumeration must find the titleless owned menu and real overlay');
   console.log(JSON.stringify({ phase: 'menu-open', popup, overlay, foreground: opened.foreground }));
   assert.ok(overlay.z < popup.z, 'the arrow must paint above the owned dropdown');
@@ -77,8 +80,8 @@ try {
   snapshot = await state();
   assert.equal(fs.readFileSync(file, 'utf8'), POEM, 'disk readback independently confirms the saved poem');
   await delay(MENU_SETTLE_MS);
-  const dismissed = await layers(target.pid);
-  const settledOverlay = dismissed.windows.find(window => window.title.startsWith('Cua.AgentCursorOverlay'));
+  const dismissed = await layers(target.pid, driverPid);
+  const settledOverlay = computerOverlayWindow(dismissed.windows, driverPid);
   assert.ok(settledOverlay && !settledOverlay.topmost, 'the overlay must leave the topmost band after dismissal');
   const cursor = await service.cursorCall(COMPUTER_CURSOR_TOOLS.state, { session: service.pointerSession });
   assert.equal(cursor.enabled, true);

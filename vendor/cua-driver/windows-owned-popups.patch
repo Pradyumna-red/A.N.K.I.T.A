@@ -1,17 +1,29 @@
 diff --git a/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs b/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs
-index d9ecc74bf..a3a7f0a3b 100644
+index d9ecc74bf..b2fb2d6aa 100644
 --- a/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs
 +++ b/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs
-@@ -41,6 +41,8 @@ use cursor_overlay::{
+@@ -41,6 +41,10 @@ use cursor_overlay::{
      RenderStateCore, ZOrderEnforcer,
  };
  use indexmap::IndexMap;
 +mod window_family;
-+use window_family::{is_driven_window_family, win_z_order_placement, WinZOrderPlacement};
++use window_family::{
++    is_driven_window_family, needs_z_order_maintenance, win_z_order_placement, WinZOrderPlacement,
++};
  
  // ── Global channel ────────────────────────────────────────────────────────
  
-@@ -1271,8 +1273,23 @@ unsafe extern "system" fn wnd_proc(
+@@ -964,6 +968,9 @@ thread_local! {
+     /// must push the full surface to establish the layered-window backing
+     /// store. Surface recreation and idle teardown reset this flag.
+     static FIRST_PRESENT: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
++    /// Remember the last maintained target until a no-target tick demotes the
++    /// overlay. Closing a resting app must not leave its arrow topmost.
++    static HAD_Z_TARGET: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+ }
+ 
+ /// Paint this frame's cursors into the persistent surface and return the
+@@ -1271,8 +1278,23 @@ unsafe extern "system" fn wnd_proc(
                      // returns `None` here and does no compositing at all.
                      let should_render = had_msg || hover_changed || needs_tick || was_active;
  
@@ -36,7 +48,7 @@ index d9ecc74bf..a3a7f0a3b 100644
                      } else {
                          // Decide where to pin the single overlay window in z.
                          //
-@@ -1291,18 +1308,6 @@ unsafe extern "system" fn wnd_proc(
+@@ -1291,18 +1313,6 @@ unsafe extern "system" fn wnd_proc(
                          // which works from this non-foreground thread; an
                          // absolute HWND_TOP can be refused by the foreground lock
                          // and sink the overlay behind everything.
@@ -55,7 +67,7 @@ index d9ecc74bf..a3a7f0a3b 100644
  
                          // Dirty-rect composite: paint only the union of last
                          // frame's and this frame's cursor bounds into the
-@@ -1324,14 +1329,16 @@ unsafe extern "system" fn wnd_proc(
+@@ -1324,19 +1334,27 @@ unsafe extern "system" fn wnd_proc(
                  }
              };
  
@@ -64,18 +76,29 @@ index d9ecc74bf..a3a7f0a3b 100644
                  unsafe { present_surface(hwnd, dirty) };
 -
 +            }
-+            if painted || pinned_wid.is_some() {
++            if needs_z_order_maintenance(
++                painted,
++                pinned_wid.is_some(),
++                HAD_Z_TARGET.with(|previous| previous.get()),
++            ) {
                  // Z-order maintenance every 80ms — delegate to the cross-platform
                  // ZOrderEnforcer so the contract for "z+1 of the application under
                  // test" is documented once in `cursor_overlay::z_order`. Only run
 -                // while we actually rendered: a quiescent overlay leaves its z-slot
 -                // untouched until the next command wakes the loop.
-+                // while painted or a visible cursor owns a target. Resting
-+                // cursors follow popup creation/dismissal without repainting.
++                // while painted, while a visible cursor owns a target, or once
++                // after losing that target. Resting cursors follow popup
++                // creation/dismissal and app closure without repainting.
                  let last = LAST_ZTICK.load(std::sync::atomic::Ordering::Relaxed);
                  if now_ms.wrapping_sub(last) >= 80 {
                      LAST_ZTICK.store(now_ms, std::sync::atomic::Ordering::Relaxed);
-@@ -1402,20 +1409,6 @@ struct WinZOrderEnforcer {
+                     if let Some(enforcer) = Z_ORDER.get() {
+                         enforcer.reassert(pinned_wid);
++                        HAD_Z_TARGET.with(|previous| previous.set(pinned_wid.is_some()));
+                     }
+                 }
+             }
+@@ -1402,20 +1420,6 @@ struct WinZOrderEnforcer {
      hwnd_isize: isize,
  }
  
@@ -96,7 +119,7 @@ index d9ecc74bf..a3a7f0a3b 100644
  /// Of the given window ids, return the one highest in the current z-order (the
  /// first encountered walking top→bottom), or `None` if none are present. Used to
  /// pick the single window the overlay should pin just above so it covers every
-@@ -1423,18 +1416,39 @@ fn win_z_order_placement(has_live_target: bool) -> WinZOrderPlacement {
+@@ -1423,18 +1427,39 @@ fn win_z_order_placement(has_live_target: bool) -> WinZOrderPlacement {
  #[cfg(target_os = "windows")]
  unsafe fn topmost_of(ids: &[u64]) -> Option<u64> {
      use windows::Win32::Foundation::HWND;
@@ -139,7 +162,7 @@ index d9ecc74bf..a3a7f0a3b 100644
  }
  
  impl ZOrderEnforcer for WinZOrderEnforcer {
-@@ -1481,23 +1495,51 @@ impl ZOrderEnforcer for WinZOrderEnforcer {
+@@ -1481,23 +1506,51 @@ impl ZOrderEnforcer for WinZOrderEnforcer {
              //      `orderWindow:above:` / `StackMode::ABOVE` APIs.
              //
              match (
@@ -205,7 +228,7 @@ index d9ecc74bf..a3a7f0a3b 100644
                      let _ = SetWindowPos(
                          hwnd,
                          insert_after,
-@@ -1554,9 +1596,12 @@ mod tests {
+@@ -1554,9 +1607,12 @@ mod tests {
  
      #[test]
      fn windows_z_order_branch_tracks_live_target_presence() {
@@ -222,10 +245,10 @@ index d9ecc74bf..a3a7f0a3b 100644
      }
 diff --git a/libs/cua-driver/rust/crates/platform-windows/src/overlay/window_family.rs b/libs/cua-driver/rust/crates/platform-windows/src/overlay/window_family.rs
 new file mode 100644
-index 000000000..54faa3db7
+index 000000000..1517e8157
 --- /dev/null
 +++ b/libs/cua-driver/rust/crates/platform-windows/src/overlay/window_family.rs
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,83 @@
 +//! Overlay policy for the exact driven Windows ownership family. No app names,
 +//! menu classes or pixel assumptions; native adapters supply observed facts.
 +
@@ -258,9 +281,22 @@ index 000000000..54faa3db7
 +    visible && (roots.contains(&window_id) || roots.contains(&root_owner))
 +}
 +
++pub(super) fn needs_z_order_maintenance(
++    painted: bool,
++    has_live_target: bool,
++    had_live_target: bool,
++) -> bool {
++    painted || has_live_target || had_live_target
++}
++
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
++    #[test]
++    fn demotes_after_the_resting_window_family_disappears() {
++        assert!(needs_z_order_maintenance(false, false, true));
++        assert!(!needs_z_order_maintenance(false, false, false));
++    }
 +    #[test]
 +    fn includes_owned_popup_and_nested_dialog_surfaces() {
 +        assert!(is_driven_window_family(20, 10, true, &[10]));
