@@ -1,2 +1,2 @@
 # Unified source diffs require a literal space prefix on empty context lines.
-vendor/cua-driver/*.patch whitespace=-blank-at-eol
+vendor/cua-driver/*.patch text eol=lf whitespace=-blank-at-eol

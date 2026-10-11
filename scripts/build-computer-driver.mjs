@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { runDriverBuild as run } from './lib/computer-driver-build.mjs';
 import { createHash } from 'node:crypto';
 import { CONFIG_DIR } from '../src/core/config.mjs';
 import { COMPUTER_DRIVER_NAME, COMPUTER_SUPPORTED_PLATFORM } from '../src/integrations/computer-use.mjs';
@@ -9,7 +9,6 @@ import { COMPUTER_DRIVER_NAME, COMPUTER_SUPPORTED_PLATFORM } from '../src/integr
 const VENDOR_DIRECTORY = fileURLToPath(new URL('../vendor/cua-driver/', import.meta.url)); // Repository asset path; source provenance lives beside the source change.
 const SOURCE = JSON.parse(fs.readFileSync(path.join(VENDOR_DIRECTORY, 'source.json'), 'utf8'));
 const DRIVER_DIRECTORY = path.join(CONFIG_DIR, 'computer-driver'); // External service build cache, outside Electron and the user's documents.
-const DEFAULT_BUILD_JOBS = 2; // Compiler processes; bound memory use on a desktop also running ANKITA.
 const GIT_COMMAND = 'git'; // Resolved from PATH; missing developer tools fail before changing the saved MCP connection.
 const CARGO_COMMAND = 'cargo'; // Use the caller's configured Rust/MSVC environment; never install a compiler automatically.
 const EXECUTABLE_EXTENSION = '.exe'; // This source change targets Windows native window ownership.
@@ -24,18 +23,6 @@ function option(name, fallback) {
   return path.resolve(process.argv[index + 1]);
 }
 
-async function run(command, args, cwd, { capture = false, allowFailure = false } = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, windowsHide: true, env: { ...process.env, RUSTUP_AUTO_INSTALL: '0', CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS || String(DEFAULT_BUILD_JOBS) }, stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit' });
-    let output = '';
-    if (capture) { child.stdout.on('data', chunk => { output += chunk; }); child.stderr.on('data', chunk => { output += chunk; }); }
-    child.on('error', reject);
-    child.on('close', code => {
-      if (code !== 0 && !allowFailure) reject(new Error(`${command} ${args[0]} exited ${code}: ${output.trim()}`));
-      else resolve({ code, output: output.trim() });
-    });
-  });
-}
 const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 if (process.platform !== COMPUTER_SUPPORTED_PLATFORM) throw new Error('Build the computer driver from a Windows Rust/MSVC development environment');
@@ -59,7 +46,7 @@ if (applied.code !== 0) {
 // A commit ID does not prove a developer-provided checkout is unchanged.
 // Require every source edit to match this exact reviewed diff before compiling.
 const changedFiles = fs.readFileSync(patch, 'utf8').split(/^diff --git /m).slice(1).map(section => ({
-  file: section.split('\n')[0].split(' b/')[1],
+  file: section.split('\n')[0].split(' b/')[1].trim(),
   blob: section.match(/^index [a-f0-9]+\.\.([a-f0-9]+)/m)?.[1],
 }));
 const status = (await run(GIT_COMMAND, ['status', '--porcelain', '--untracked-files=all'], repository, { capture: true })).output;
