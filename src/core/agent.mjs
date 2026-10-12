@@ -7,27 +7,23 @@ import { ProjectStore } from '../memory/projects.mjs';
 import { randomUUID, createHash } from 'node:crypto';
 import { personalMemoryContext, withMemoryContext } from '../memory/memory-context.mjs';
 import { warmRecall } from '../../tools/personal/recall.mjs';
-import { specs, coreSpecs, specsFor, get, needsApproval, isReadOnly, displayArgs, coreNames, categoryOfTool, CATEGORIES } from "../../tools/index.mjs";
+import { specs, coreSpecs, specsFor, get, isReadOnly, coreNames, categoryOfTool, CATEGORIES } from "../../tools/index.mjs";
 import { redactText, configuredSecrets } from './redact.mjs';
-import { TIER_DENY } from '../integrations/mcp-tiers.mjs';
 import { fetchWithRetry } from "./net.mjs";
 import { c, preview, short, clip } from "./ui.mjs";
 import { renderDiff } from "../../tools/shared/_diff.mjs";
 import { capOutput } from "../../tools/shared/_shared.mjs";
 import { messageCost, trimMessages } from "./history.mjs";
 import { compactBrowserHistory } from './browser-context.mjs';
-import { primitiveBrowserCost } from '../../tools/browser/operations.mjs';
-import { captureBrowserEvidence, recordBrowserProgress } from './browser-progress.mjs';
 import { focusAllows, TOOL_FOCUS_GUIDANCE, BROWSER_DISCOVERY_GUIDANCE } from './tool-focus.mjs';
 import { providerError, responseError } from './provider-errors.mjs';
-import { runFileToolInWorker } from '../tooling/tool-worker.mjs';
 import { loadSkills, skillPromptLines, activeAutomaticSkills } from './skills.mjs';
 import { isToolFailure, verdictFor, verificationFooter } from './verify.mjs';
 import { browserScreenshotImage, MAX_BROWSER_SCREENSHOTS_PER_TURN } from '../../tools/browser/screenshots.mjs';
-import { managedMcpSummaries, isBrowserMcpTool, MANAGED_BROWSER_REQUIRED } from '../integrations/browser-routing.mjs';
+import { managedMcpSummaries } from '../integrations/browser-routing.mjs';
 import { parseToolName } from '../integrations/mcp-manager.mjs';
 import { attachMcpImages, MAX_MCP_IMAGES_PER_TURN, messagesForModel } from '../integrations/mcp-images.mjs';
-import { COMPUTER_MCP_ID, COMPUTER_DIRECT_CONFIG, COMPUTER_POINTER_SESSION, COMPUTER_GUIDANCE, COMPUTER_READ_TOOLS, COMPUTER_TOOLS, computerObservationTargets, formatComputerTargets } from '../integrations/computer-use.mjs';
+import { COMPUTER_MCP_ID, COMPUTER_GUIDANCE, COMPUTER_READ_TOOLS, COMPUTER_TOOLS, computerObservationTargets, formatComputerTargets } from '../integrations/computer-use.mjs';
 import { BACKGROUND_JOB_PROMPT, BACKGROUND_BROWSER_PROMPT, DEFAULT_JOB_ALLOW, JOB_EXECUTION_COMPLETE, SCHEDULE_TASK_GUIDANCE } from '../automation/job-policy.mjs';
 
 const foregroundBrowserSpec = specs.find(spec => spec.function.name === 'browser');
@@ -48,14 +44,13 @@ toolUi.diff = (oldText, newText, opts = {}) => renderDiff(oldText, newText, { ui
 // until the budget is gone - observed live, which is what this exists to stop.
 // Override per install with MAX_TOOL_STEPS.
 export const MAX_TOOL_STEPS = 100;
-export const MAX_TOOL_CALLS = 60;
-export const MAX_WEB_SEARCHES_PER_TURN = 6;
+import { ToolHost, MAX_TOOL_CALLS, MAX_WEB_SEARCHES_PER_TURN, MAX_REPEAT_CALLS } from './tool-host.mjs';
+export { MAX_TOOL_CALLS, MAX_WEB_SEARCHES_PER_TURN, MAX_REPEAT_CALLS } from './tool-host.mjs';
 // How many rounds may repeat one identical call (same tool, same arguments)
 // before that repetition counts as no progress and the loop stops. Three allows
 // a legitimate re-read after a file changed; it does not allow a cycle. Counted
 // once per round, so several identical parallel calls are a batching choice and
 // not a loop.
-export const MAX_REPEAT_CALLS = 3;
 const MAX_TOOL_PROTOCOL_CORRECTIONS = 1; // Corrections/request within the existing step budget; never execute printed JSON.
 const PRINTED_TOOL_REQUEST = /\[\s*tool\s+call\s*:\s*[\w-]+\s*\]/i; // Explicit pretend tool markup observed in provider final responses.
 const PRINTED_TOOL_REQUEST_LINE = new RegExp(`^${PRINTED_TOOL_REQUEST.source}\\s*(\\{.*)?$`, PRINTED_TOOL_REQUEST.flags); // Marker can precede JSON on the same line or its own line.
@@ -895,191 +890,96 @@ export class Agent {
    * approved according to the server's own hints. Routed here before the local
    * registry is consulted, since no local tool starts with the prefix.
    */
+  executionHost() {
+    this._toolHost ??= new ToolHost({
+      context: () => {
+        const executionState = {};
+        for (const name of ['searchesThisTurn', 'browserActionsThisTurn', 'activeSkillTools', 'browserEvidence', 'browserProgress']) {
+          Object.defineProperty(executionState, name, { get: () => this[name], set: value => { this[name] = value; } });
+        }
+        return { ...this.toolContext, cwd: this.cwd, workspacePath: this.workspacePath, config: this.config,
+          ui: this.ui, state: this.state, executionState, allowedTools: this.allowedTools,
+          signal: this.abort?.signal, autoApprove: this.autoApprove,
+          skillsInteractive: this.skillsEnabled, skillsEnabled: this.availableSkills().length > 0,
+          disabledSkills: this.disabledSkills, projectId: this.projectId, mcp: this.mcp,
+          browserManager: this.browserManager, browserThreadId: this.browserThreadId,
+          browserCredentialAllowed: this.browserCredentialAllowed === true,
+          browserResultCallback: result => this.toolContext?.onBrowserActionResult?.(result),
+          onLocalResult: (name, args, result, ctx) => {
+            if (name === 'remember' && args.action !== 'list' && !String(result).startsWith('Error:')) this.memoryContext = null;
+            if (['remember', 'project_memory', 'project'].includes(name) && !String(result).startsWith('Error:')) warmRecallSafely(ctx);
+            if (name === 'project' && ['add', 'use', 'archive', 'forget', 'update'].includes(args.action) && !String(result).startsWith('Error:')) {
+              const projects = new ProjectStore(PROJECTS_FILE).load();
+              if (!['add', 'use'].includes(args.action)) {
+                const current = projects.find(this.projectId);
+                projects.data.active = current && !current.archived ? current.id : null;
+              }
+              const workspacePath = projects.active?.path && fs.existsSync(projects.active.path) && fs.statSync(projects.active.path).isDirectory() ? projects.active.path : null;
+              this.setProject(projects.promptBlock(), projects.activeId, workspacePath);
+            }
+          },
+        };
+      },
+      authorize: (name, detail) => this.confirm?.(name, detail),
+    });
+    return this._toolHost;
+  }
+
+  parseToolArguments(call, parsedArgs) {
+    return parsedArgs ?? (call.function.arguments ? JSON.parse(call.function.arguments) : {});
+  }
+
   async runMcpToolCall(call, parsedArgs) {
+    let args;
+    try { args = this.parseToolArguments(call, parsedArgs); }
+    catch (err) { return `Error: arguments were not valid JSON (${err.message}).`; }
     const name = call.function.name;
-    const found = this.mcp?.findTool(name);
-    if (this.browserManager && isBrowserMcpTool(name, [{ id: parseToolName(name)?.serverId, tools: found?.record?.tools || [] }])) {
-      this.state.activatedTools.add('browser');
-      return MANAGED_BROWSER_REQUIRED;
+    const result = await this.executionHost().execute({ id: call.id, name, arguments: args }, { resultMode: 'api' });
+    const targets = parseToolName(name)?.serverId === COMPUTER_MCP_ID ? computerObservationTargets(result) : null;
+    const activeClient = this._activeModelClient || this.client;
+    const activeModel = this._activeModel || this.model;
+    const rendered = attachMcpImages(result, { messages: this.messages, callId: call.id, toolName: name,
+      vision: activeClient?.modelCapabilities?.get(activeModel)?.vision,
+      remaining: Math.max(0, MAX_MCP_IMAGES_PER_TURN - (this.mcpImagesThisTurn || 0)) });
+    this.mcpImagesThisTurn = (this.mcpImagesThisTurn || 0) + rendered.attached;
+    if (targets) {
+      this.computerObservations ??= new Map();
+      const budget = this.config.maxToolChars > 0 ? this.config.maxToolChars : DEFAULT_TOOL_OUTPUT_BYTES;
+      this.computerObservations.set(call.id, { targets, text: capOutput(rendered.text, budget) });
     }
-    if (!found) return `Error: no connected MCP server provides "${name}".`;
-
-    let args = parsedArgs;
-    try {
-      args ??= call.function.arguments ? JSON.parse(call.function.arguments) : {};
-    } catch (err) {
-      return `Error: arguments were not valid JSON (${err.message}).`;
-    }
-
-    const native = parseToolName(name);
-    const directComputer = this.config[COMPUTER_DIRECT_CONFIG] === true && native?.serverId === COMPUTER_MCP_ID && COMPUTER_TOOLS.includes(native.toolName);
-    const pointerSession = found.record?.[COMPUTER_POINTER_SESSION];
-    if (directComputer && pointerSession && found.tool?.inputSchema?.properties?.session) {
-      // A model-chosen session must not create another cursor outside the desktop's Show pointer setting.
-      args = { ...args, session: pointerSession };
-    }
-    // Tier 3 is the only silent denial, and it is always an explicit blocklist
-    // entry rather than a guess, so the model can be told exactly why.
-    const decision = this.mcp.tierFor?.(name, args);
-    if (decision?.tier === TIER_DENY) {
-      this.mcp.recordTierDecision?.(name, "denied");
-      return `Error: ${decision.label} is blocked by the approval tiers. Do not retry it; ask the user whether the tier rule should change.`;
-    }
-    if (directComputer) this.mcp.recordTierDecision?.(name, 'allowed');
-    if (!directComputer && this.mcp.needsApproval(name, args) && this.autoApprove !== true) {
-      const detail = this.mcp.approvalDetail(name, args);
-      const ok = await this.confirm?.(name, detail);
-      this.mcp.recordTierDecision?.(name, ok === true ? "allowed" : "denied");
-      if (ok !== true) return "The user denied permission for this action. Do not retry it; ask what to do instead.";
-    }
-
-    try {
-      if (!this.mcp.callToolResult) return await this.mcp.callTool(name, args, { signal: this.abort?.signal });
-      const result = await this.mcp.callToolResult(name, args, { signal: this.abort?.signal });
-      const targets = parseToolName(name)?.serverId === COMPUTER_MCP_ID ? computerObservationTargets(result) : null;
-      const activeClient = this._activeModelClient || this.client;
-      const activeModel = this._activeModel || this.model;
-      const rendered = attachMcpImages(result, { messages: this.messages, callId: call.id, toolName: name,
-        vision: activeClient?.modelCapabilities?.get(activeModel)?.vision,
-        remaining: Math.max(0, MAX_MCP_IMAGES_PER_TURN - (this.mcpImagesThisTurn || 0)) });
-      this.mcpImagesThisTurn = (this.mcpImagesThisTurn || 0) + rendered.attached;
-      if (targets) {
-        this.computerObservations ??= new Map();
-        const budget = this.config.maxToolChars > 0 ? this.config.maxToolChars : DEFAULT_TOOL_OUTPUT_BYTES;
-        this.computerObservations.set(call.id, { targets, text: capOutput(rendered.text, budget) });
-      }
-      return rendered.text + formatComputerTargets(targets);
-    } catch (err) {
-      return `Error while running ${name}: ${err.message}`;
-    }
+    return rendered.text + formatComputerTargets(targets);
   }
 
   async runToolCall(call, parsedArgs) {
-    if (!focusAllows(this.state, call.function.name)) return 'Error: This tool is outside the current tool focus. Use find_tools with scope="general" to explicitly change methods before executing it.';
-    if (this.allowedTools && !this.allowedTools.has(call.function.name)) return 'Error: This tool is not available in background browser jobs.';
-    if (String(call.function.name || "").startsWith("mcp__")) return this.runMcpToolCall(call, parsedArgs);
-
-    if (call.function.name === 'skill' && !this.skillsEnabled) return 'Error: skills are available only in interactive chats.';
-
-    const tool = get(call.function.name);
-    if (!tool) return `Error: unknown tool "${call.function.name}".`;
-
-    let args = parsedArgs;
-    try {
-      args ??= call.function.arguments ? JSON.parse(call.function.arguments) : {};
-    } catch (err) {
-      return `Error: arguments were not valid JSON (${err.message}).`;
-    }
-
-    if (call.function.name === 'skill' && this.disabledSkills.has(String(args?.name || '').trim().toLowerCase())) {
-      return `Error: skill "${args.name}" is disabled in Plugins > Skills.`;
-    }
-
-    if (tool.name === 'web_search') {
-      if (!completionWorker(this.config) && this.searchesThisTurn >= MAX_WEB_SEARCHES_PER_TURN) {
-        return `Search limit reached (${MAX_WEB_SEARCHES_PER_TURN} web searches for this request). Use the results already gathered and answer the user; do not try another search tool for the same query.`;
-      }
-      this.searchesThisTurn++;
-    }
-
-    const ctx = {
-      ...this.toolContext,
-      cwd: this.cwd,
-      workspacePath: this.workspacePath,
-      config: this.config,
-      ui: this.ui,
-      width: process.stdout.columns || 80,
-      signal: this.abort?.signal,
-      state: this.state,
-      skillsEnabled: this.availableSkills().length > 0,
-      disabledSkills: this.disabledSkills,
-      onToolsActivated: names => { for (const name of names) this.activeSkillTools.add(name); },
-      // Lets the schedule/watch tools default a new entry to the active project.
-      projectId: this.projectId,
-      // mcp_manage reloads through this, and find_tools loads a big server's
-      // tools by name. Without it a tool-driven reload cannot reconnect.
-      mcp: this.mcp,
-      browserManager: this.browserManager,
-      browserThreadId: this.browserThreadId,
-      browserCallId: call.id,
-      browserCredentialAllowed: this.browserCredentialAllowed === true,
-      onBrowserActionResult: result => {
-        this.toolContext?.onBrowserActionResult?.(result);
-        if (this.config.browserEvidenceRetention === true) this.browserEvidence = captureBrowserEvidence(this.browserEvidence, result, call.id);
-        if (this.config.browserProgressTracking === true) this.browserProgress = recordBrowserProgress(this.browserProgress, result, { maxRepeats: MAX_REPEAT_CALLS });
-      },
-    };
-
+    if (String(call.function.name || '').startsWith('mcp__')) return this.runMcpToolCall(call, parsedArgs);
+    let args;
+    try { args = this.parseToolArguments(call, parsedArgs); }
+    catch (err) { return `Error: arguments were not valid JSON (${err.message}).`; }
+    const name = call.function.name;
+    const native = await this.executionHost().execute({ id: call.id, name, arguments: args }, { resultMode: 'api' });
+    let result = native.content.filter(part => part.type === 'text').map(part => part.text).join('\n');
     const budget = this.config.maxToolChars > 0 ? this.config.maxToolChars : DEFAULT_TOOL_OUTPUT_BYTES;
-    try {
-      if (this.cancelled()) return 'Action cancelled by user.';
-      if (needsApproval(tool.name, args, ctx)) {
-        // Auto-approve means "do not interrupt me", not "you may lower your own
-        // protection". An unattended scheduled job has these tools, so a change
-        // that only loosens the gate must still reach a human.
-        if (this.autoApprove === true && tool.neverAutoApprove?.(args, ctx) === true) {
-          return `Error: ${tool.name} can change approval settings, which auto-approve is not allowed to do. Ask the user to run it interactively.`;
-        }
-        const preview = tool.approval ? await tool.approval(args, ctx, this.ui) : null;
-        const detail = redactText(typeof preview === 'string' && preview.trim() ? preview :
-          `${tool.name}\n\n${JSON.stringify(displayArgs(tool.name, args, ctx), null, 2)}`,
-          { secrets: configuredSecrets(process.env, this.config) });
-        if (this.autoApprove !== true) {
-          const ok = await this.confirm?.(tool.name, detail);
-          if (ok !== true) return "The user denied permission for this action. Do not retry it; ask what to do instead.";
-        }
+    const ctx = this.executionHost().currentContext();
+    const activeClient = this._activeModelClient || this.client;
+    const activeModel = this._activeModel || this.model;
+    if (name === 'browser' && args.action === 'screenshot' && activeClient?.modelCapabilities?.get(activeModel)?.vision === false) {
+      let receipt; try { receipt = JSON.parse(result); } catch {}
+      if (receipt?.type === 'browser_screenshot') {
+        const snapshot = await get(name).run({ action: 'snapshot', tab: args.tab, mode: args.mode }, { ...ctx, signal: this.abort?.signal }).catch(() => 'Snapshot unavailable; read the page when ready.');
+        return capOutput(JSON.stringify({ ...receipt, visionAttached: false, note: 'This model is text-only. The screenshot remains an artifact; use the current DOM snapshot.', snapshot }), budget);
       }
-      if (this.cancelled()) return 'Action cancelled by user.';
-      this.activeSkillTools.add(tool.name);
-      if (tool.name === 'browser' && this.config.browserRuntimeV2 === true) {
-        const limit = this.config.maxToolCalls > 0 ? this.config.maxToolCalls : MAX_TOOL_CALLS; // Primitive operations/turn; derived from the existing call ceiling.
-        const cost = primitiveBrowserCost(args);
-        if ((this.browserActionsThisTurn || 0) + cost > limit) return `Error: Browser primitive action budget (${limit} this turn) is exhausted. Inspect existing receipts and report unfinished work.`;
-        this.browserActionsThisTurn = (this.browserActionsThisTurn || 0) + cost;
-      }
-      let result = ['search_files', 'glob', 'list_dir', 'read_file'].includes(tool.name)
-        ? await runFileToolInWorker(tool.name, args, ctx)
-        : await tool.run(args, ctx);
-      if (tool.name === 'browser' && typeof result === 'string' && !isToolFailure(result)) {
-        const guidance = [this.config.browserProgressTracking === true ? this.browserProgress?.guidance : null,
-          this.config.browserEvidenceRetention === true ? this.browserEvidence?.notice : null].filter(Boolean);
-        if (guidance.length) result += '\nBrowser read-back guidance: ' + guidance.join(' ');
-      }
-      const activeClient = this._activeModelClient || this.client;
-      const activeModel = this._activeModel || this.model;
-      if (tool.name === 'browser' && args.action === 'screenshot' && activeClient.modelCapabilities?.get(activeModel)?.vision === false) {
-        let receipt; try { receipt = JSON.parse(result); } catch {}
-        if (receipt?.type === 'browser_screenshot') {
-          const snapshot = await tool.run({ action: 'snapshot', tab: args.tab, mode: args.mode }, ctx).catch(() => 'Snapshot unavailable; read the page when ready.');
-          return capOutput(JSON.stringify({ ...receipt, visionAttached: false, note: 'This model is text-only. The screenshot remains an artifact; use the current DOM snapshot.', snapshot }), budget);
-        }
-      }
-      if (tool.name === 'browser' && args.action === 'screenshot' && this.browserScreenshotsThisTurn < MAX_BROWSER_SCREENSHOTS_PER_TURN) {
-        const image = browserScreenshotImage(result, ctx);
-        const request = this.messages.findLast(message => message.role === 'user');
-        if (image && request) {
-          const parts = Array.isArray(request.content) ? request.content : [{ type: 'text', text: String(request.content || '') }];
-          // Use the existing user-image wire format; tool replies remain text for API compatibility.
-          request.content = [...parts, { type: 'image_url', image_url: { url: image.dataUrl } }];
-          this.browserScreenshotsThisTurn++;
-          result = JSON.stringify({ ...image.receipt, visionAttached: true });
-        }
-      }
-      if (tool.name === 'remember' && args.action !== 'list' && !String(result).startsWith('Error:')) this.memoryContext = null;
-      if (['remember', 'project_memory', 'project'].includes(tool.name) && !String(result).startsWith('Error:')) warmRecallSafely(ctx);
-      if (tool.name === 'project' && ['add', 'use', 'archive', 'forget', 'update'].includes(args.action) && !String(result).startsWith('Error:')) {
-        const projects = new ProjectStore(PROJECTS_FILE).load();
-        if (!['add', 'use'].includes(args.action)) {
-          const current = projects.find(this.projectId);
-          projects.data.active = current && !current.archived ? current.id : null;
-        }
-        const workspacePath = projects.active?.path && fs.existsSync(projects.active.path) && fs.statSync(projects.active.path).isDirectory() ? projects.active.path : null;
-        this.setProject(projects.promptBlock(), projects.activeId, workspacePath);
-      }
-      return capOutput(result, budget);
-    } catch (err) {
-      return `Error while running ${tool.name}: ${err.message}`;
     }
+    if (name === 'browser' && args.action === 'screenshot' && this.browserScreenshotsThisTurn < MAX_BROWSER_SCREENSHOTS_PER_TURN) {
+      const image = browserScreenshotImage(result, ctx);
+      const request = this.messages.findLast(message => message.role === 'user');
+      if (image && request) {
+        const parts = Array.isArray(request.content) ? request.content : [{ type: 'text', text: String(request.content || '') }];
+        request.content = [...parts, { type: 'image_url', image_url: { url: image.dataUrl } }];
+        this.browserScreenshotsThisTurn++;
+        result = JSON.stringify({ ...image.receipt, visionAttached: true });
+      }
+    }
+    return capOutput(result, budget);
   }
 
   /**

@@ -10,6 +10,13 @@ const TEXT_CONTENT_TYPE = 'text'; // Existing OpenAI-compatible text message dis
 const BASE64_INPUT_BYTES = 3; // Base64 encodes groups of three input bytes.
 const BASE64_OUTPUT_CHARS = 4; // Each input group produces four characters, including padding.
 
+/** The same data bounds apply to API image projection and native MCP publication. */
+export function validMcpImage(part) {
+  return MCP_IMAGE_TYPES.has(part.mimeType) && typeof part.data === 'string' &&
+    part.data.length <= Math.ceil(MAX_MCP_IMAGE_BYTES / BASE64_INPUT_BYTES) * BASE64_OUTPUT_CHARS &&
+    BASE64_IMAGE_DATA.test(part.data) && Buffer.byteLength(part.data, 'base64') <= MAX_MCP_IMAGE_BYTES;
+}
+
 /** Capabilities belong to the receiving model, including a tool-model handoff or fallback. Keep original history intact. */
 export function messagesForModel(messages, vision) {
   if (vision !== false) return messages;
@@ -31,7 +38,7 @@ export function attachMcpImages(result, { messages, callId, toolName, vision, re
   if (!request) return { text: `${text}\nImages could not be attached without a user request; visual state is unverified.`, attached: 0 };
   const parts = []; let omitted = 0;
   for (const part of images) {
-    if (!MCP_IMAGE_TYPES.has(part.mimeType) || typeof part.data !== 'string' || part.data.length > Math.ceil(MAX_MCP_IMAGE_BYTES / BASE64_INPUT_BYTES) * BASE64_OUTPUT_CHARS || !BASE64_IMAGE_DATA.test(part.data) || Buffer.byteLength(part.data, 'base64') > MAX_MCP_IMAGE_BYTES || parts.length >= remaining) { omitted++; continue; }
+    if (!validMcpImage(part) || parts.length >= remaining) { omitted++; continue; }
     parts.push({ type: IMAGE_CONTENT_TYPE, image_url: { url: `data:${part.mimeType};base64,${part.data}` } });
   }
   if (parts.length) {
