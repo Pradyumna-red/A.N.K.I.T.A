@@ -14,6 +14,12 @@ import { TIER_DENY } from '../integrations/mcp-tiers.mjs';
 import { COMPUTER_MCP_ID, COMPUTER_DIRECT_CONFIG, COMPUTER_POINTER_SESSION, COMPUTER_TOOLS, computerObservationTargets, formatComputerTargets } from '../integrations/computer-use.mjs';
 import { validMcpImage, MAX_MCP_IMAGES_PER_TURN } from '../integrations/mcp-images.mjs';
 import { JOB_EXECUTION_COMPLETE } from '../automation/job-policy.mjs';
+import { TOOL_RESULT_MODE } from '../integrations/chatgpt-browser/protocol.mjs';
+import { c, preview, short, clip } from './ui.mjs';
+import { renderDiff } from '../../tools/shared/_diff.mjs';
+
+export const TOOL_UI = { ...c, preview, short, clip };
+TOOL_UI.diff = (oldText, newText, opts = {}) => renderDiff(oldText, newText, { ui: TOOL_UI, ...opts });
 
 // Calls/request: shared with the API loop so browser hosts use the same limits.
 export const MAX_TOOL_CALLS = 60;
@@ -24,7 +30,9 @@ const DEFAULT_OUTPUT_COLUMNS = 80; // Terminal columns when no interactive TTY s
 const CANCELLED = 'Action cancelled by user.';
 const DENIED = 'The user denied permission for this action. Do not retry it; ask what to do instead.';
 const MCP_PREFIX = 'mcp__'; // Existing namespaced registry contract.
-const MCP_MODE = 'mcp'; // Native result projection; API image history is owned by Agent.
+const MCP_MODE = TOOL_RESULT_MODE.mcp;
+const READ_ONLY_DENIAL = 'Error: this host is read-only.';
+const automaticApproval = ctx => ctx.autoApprove === undefined ? ctx.config.autoApprove === true : ctx.autoApprove === true; // Current host policy wins over an older config snapshot.
 const textResult = text => ({ content: [{ type: 'text', text: String(text) }], isError: isToolFailure(String(text)) || text === CANCELLED || text === DENIED });
 
 /** Execution only: no model client, conversation loop or API history. Context is host-owned.
@@ -59,7 +67,7 @@ export class ToolHost {
     const args = call.arguments ?? {};
     const name = call.name;
     const combined = AbortSignal.any([this.controller.signal, signal, base.signal].filter(Boolean));
-    const ctx = { ...base, config, state: base.state ?? { activatedTools: new Set() }, signal: combined,
+    const ctx = { ...base, config, state: base.state ?? { activatedTools: new Set() }, signal: combined, ui: base.ui ?? TOOL_UI,
       width: base.width ?? process.stdout.columns ?? DEFAULT_OUTPUT_COLUMNS,
       browserCallId: call.id, mcp: base.mcp ?? this.mcp };
     const budget = config.maxToolChars > 0 ? config.maxToolChars : DEFAULT_TOOL_OUTPUT_BYTES;
@@ -89,7 +97,7 @@ export class ToolHost {
       ctx.state.activatedTools.add('browser'); return textResult(MANAGED_BROWSER_REQUIRED);
     }
     if (!found) return textResult(`Error: no connected MCP server provides "${name}".`);
-    if (ctx.readOnly && found.tool?.annotations?.readOnlyHint !== true) return textResult('Error: this host is read-only.');
+    if (ctx.readOnly && found.tool?.annotations?.readOnlyHint !== true) return textResult(READ_ONLY_DENIAL);
     const direct = ctx.config[COMPUTER_DIRECT_CONFIG] === true && native?.serverId === COMPUTER_MCP_ID && COMPUTER_TOOLS.includes(native.toolName);
     const pointer = found.record?.[COMPUTER_POINTER_SESSION];
     if (direct && pointer && found.tool?.inputSchema?.properties?.session) args = { ...args, session: pointer };
@@ -99,7 +107,7 @@ export class ToolHost {
       return textResult(`Error: ${decision.label} is blocked by the approval tiers. Do not retry it; ask the user whether the tier rule should change.`);
     }
     if (direct) mcp.recordTierDecision?.(name, 'allowed');
-    if (!direct && mcp.needsApproval(name, args) && ctx.autoApprove !== true && ctx.config.autoApprove !== true) {
+    if (!direct && mcp.needsApproval(name, args) && !automaticApproval(ctx)) {
       const ok = await this.authorize?.(name, mcp.approvalDetail(name, args));
       mcp.recordTierDecision?.(name, ok === true ? 'allowed' : 'denied');
       if (ok !== true) return textResult(DENIED);
@@ -130,7 +138,7 @@ export class ToolHost {
   async executeLocal(call, args, ctx, state, resultMode, budget) {
     const tool = get(call.name);
     if (!tool) return textResult(`Error: unknown tool "${call.name}".`);
-    if (ctx.readOnly && !isReadOnly(tool.name, args, ctx)) return textResult('Error: this host is read-only.');
+    if (ctx.readOnly && !isReadOnly(tool.name, args, ctx)) return textResult(READ_ONLY_DENIAL);
     if (tool.name === 'skill' && !(ctx.skillsInteractive ?? ctx.skillsEnabled)) return textResult('Error: skills are available only in interactive chats.');
     if (tool.name === 'skill' && ctx.disabledSkills?.has(String(args.name || '').trim().toLowerCase())) return textResult(`Error: skill "${args.name}" is disabled in Plugins > Skills.`);
     if (tool.name === 'web_search') {
@@ -144,7 +152,7 @@ export class ToolHost {
       if (ctx.config.browserEvidenceRetention === true) state.browserEvidence = captureBrowserEvidence(state.browserEvidence, result, call.id);
       if (ctx.config.browserProgressTracking === true) state.browserProgress = recordBrowserProgress(state.browserProgress, result, { maxRepeats: MAX_REPEAT_CALLS });
     };
-    const automatic = ctx.autoApprove === true || ctx.config.autoApprove === true;
+    const automatic = automaticApproval(ctx);
     if (needsApproval(tool.name, args, ctx)) {
       if (automatic && tool.neverAutoApprove?.(args, ctx) === true) return textResult(`Error: ${tool.name} can change approval settings, which auto-approve is not allowed to do. Ask the user to run it interactively.`);
       const preview = tool.approval ? await tool.approval(args, ctx, ctx.ui) : null;

@@ -14,3 +14,14 @@ export const CORE_SURFACE = 'core';
 export const JSON_CONTENT_TYPE = 'application/json';
 export const JSON_RPC_VERSION = '2.0';
 export const RPC_ADMISSION_ERROR = -32000; // JSON-RPC application error; HTTP admission never executes handlers.
+export const REQUEST_ID_MAX_CHARS = 100; // Characters/native join key: upstream bounds opaque request metadata.
+export const REQUEST_ID_PATTERN = /^[a-z0-9_-]+$/i;
+export const HTTP_STATUS = Object.freeze({ ok: 200, badRequest: 400, unauthorized: 401, forbidden: 403, notFound: 404, conflict: 409, payloadTooLarge: 413, unavailable: 503 }); // Standard HTTP wire status codes, shared by both transports.
+export const TOOL_RESULT_MODE = Object.freeze({ api: 'api', mcp: 'mcp' }); // Projection identifiers; neither mode owns a competing model loop.
+export const LOCAL_HTTP_PROTOCOL = 'http:'; // Loopback transport scheme; public HTTPS is a separately approved tunnel.
+export const BEARER_PREFIX = 'Bearer '; // HTTP Authorization grammar, shared with the extension-generated config.
+export function normalizeRequestId(value) {
+  if (typeof value !== 'string') return null;
+  const id = value.split(REQUEST_ID_SEPARATOR)[0].trim();
+  return id && id.length <= REQUEST_ID_MAX_CHARS && REQUEST_ID_PATTERN.test(id) ? id : null;
+}

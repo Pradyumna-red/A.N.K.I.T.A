@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { HTTP_STATUS } from './protocol.mjs';
 
 /** Lifecycle-local Task 1 receipts. A new gateway has a new capability URL.
  * Durable/restart receipts replace this explicit proof-only store in Task 5.
@@ -8,7 +9,7 @@ export class MemoryToolReceipts {
   begin(identity, argumentsHash) {
     const prior = this.records.get(identity);
     if (prior) {
-      if (prior.argumentsHash !== argumentsHash) throw Object.assign(new Error('Receipt payload changed'), { status: 409 });
+      if (prior.argumentsHash !== argumentsHash) throw Object.assign(new Error('Receipt payload changed'), { status: HTTP_STATUS.conflict });
       return { ...prior, fresh: false };
     }
     let resolve;

@@ -11,9 +11,9 @@ import { specs, coreSpecs, specsFor, get, isReadOnly, coreNames, categoryOfTool,
 import { redactText, configuredSecrets } from './redact.mjs';
 import { fetchWithRetry } from "./net.mjs";
 import { c, preview, short, clip } from "./ui.mjs";
-import { renderDiff } from "../../tools/shared/_diff.mjs";
 import { capOutput } from "../../tools/shared/_shared.mjs";
 import { messageCost, trimMessages } from "./history.mjs";
+import { TOOL_RESULT_MODE } from '../integrations/chatgpt-browser/protocol.mjs';
 import { compactBrowserHistory } from './browser-context.mjs';
 import { focusAllows, TOOL_FOCUS_GUIDANCE, BROWSER_DISCOVERY_GUIDANCE } from './tool-focus.mjs';
 import { providerError, responseError } from './provider-errors.mjs';
@@ -34,9 +34,6 @@ const backgroundBrowserSpec = { ...foregroundBrowserSpec, function: { ...foregro
   } },
 } }; // Shared immutable variant keeps job schemas accurate without changing foreground backends.
 
-const toolUi = { ...c, preview, short, clip };
-toolUi.diff = (oldText, newText, opts = {}) => renderDiff(oldText, newText, { ui: toolUi, ...opts });
-
 // Consecutive tool rounds allowed for one user request before the runtime stops
 // asking and has the model answer with what it has. This is a control-flow
 // bound, not advice: the loop's own exit condition is "the model stopped asking
@@ -44,7 +41,7 @@ toolUi.diff = (oldText, newText, opts = {}) => renderDiff(oldText, newText, { ui
 // until the budget is gone - observed live, which is what this exists to stop.
 // Override per install with MAX_TOOL_STEPS.
 export const MAX_TOOL_STEPS = 100;
-import { ToolHost, MAX_TOOL_CALLS, MAX_WEB_SEARCHES_PER_TURN, MAX_REPEAT_CALLS } from './tool-host.mjs';
+import { ToolHost, TOOL_UI, MAX_TOOL_CALLS, MAX_WEB_SEARCHES_PER_TURN, MAX_REPEAT_CALLS } from './tool-host.mjs';
 export { MAX_TOOL_CALLS, MAX_WEB_SEARCHES_PER_TURN, MAX_REPEAT_CALLS } from './tool-host.mjs';
 // How many rounds may repeat one identical call (same tool, same arguments)
 // before that repetition counts as no progress and the loop stops. Three allows
@@ -383,7 +380,7 @@ export class Agent {
     this.confirm = confirm;
     this.print = print;
     this.write = write;
-    this.ui = toolUi;
+    this.ui = TOOL_UI;
 
     this.model = config.model || null;
     this.useTools = config.tools;
@@ -934,7 +931,7 @@ export class Agent {
     try { args = this.parseToolArguments(call, parsedArgs); }
     catch (err) { return `Error: arguments were not valid JSON (${err.message}).`; }
     const name = call.function.name;
-    const result = await this.executionHost().execute({ id: call.id, name, arguments: args }, { resultMode: 'api' });
+    const result = await this.executionHost().execute({ id: call.id, name, arguments: args }, { resultMode: TOOL_RESULT_MODE.api });
     const targets = parseToolName(name)?.serverId === COMPUTER_MCP_ID ? computerObservationTargets(result) : null;
     const activeClient = this._activeModelClient || this.client;
     const activeModel = this._activeModel || this.model;
@@ -956,7 +953,7 @@ export class Agent {
     try { args = this.parseToolArguments(call, parsedArgs); }
     catch (err) { return `Error: arguments were not valid JSON (${err.message}).`; }
     const name = call.function.name;
-    const native = await this.executionHost().execute({ id: call.id, name, arguments: args }, { resultMode: 'api' });
+    const native = await this.executionHost().execute({ id: call.id, name, arguments: args }, { resultMode: TOOL_RESULT_MODE.api });
     let result = native.content.filter(part => part.type === 'text').map(part => part.text).join('\n');
     const budget = this.config.maxToolChars > 0 ? this.config.maxToolChars : DEFAULT_TOOL_OUTPUT_BYTES;
     const ctx = this.executionHost().currentContext();

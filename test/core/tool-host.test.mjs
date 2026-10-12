@@ -55,10 +55,12 @@ test('native MCP images and text remain native without API history or client', a
 
 test('cancellation during approval cannot execute a newly approved mutation', async () => {
   const controller = new AbortController();
-  const host = new ToolHost({ context: { ...context, readOnly: false }, authorize: async () => { controller.abort(); return true; } });
+  let prompts = 0;
+  const host = new ToolHost({ context: { ...context, readOnly: false }, authorize: async () => { prompts++; controller.abort(); return true; } });
   const result = await host.execute(call('write_file', { path: 'cancelled.txt', content: 'never' }), { signal: controller.signal });
   assert.equal(result.isError, true);
   assert.equal(fs.existsSync(path.join(directory, 'cancelled.txt')), false);
+  assert.equal(prompts, 1);
 });
 
 test('native MCP output bounds untrusted text and omits malformed image blocks', async () => {
@@ -67,4 +69,25 @@ test('native MCP output bounds untrusted text and omits malformed image blocks',
   const result = await new ToolHost({ context: { ...context, config: { maxToolChars: 1024 } }, mcp }).execute(call('mcp__proof__read'));
   assert.ok(Buffer.byteLength(text(result)) <= 1024);
   assert.equal(result.content.filter(part => part.type === 'image').length, 0);
+});
+
+test('an explicit current approval setting takes priority over older config for local and MCP writes', async () => {
+  let prompts = 0, executions = 0;
+  const mcp = { findTool: () => ({}), needsApproval: () => true, approvalDetail: () => 'Fixture mutation', callToolResult: async () => { executions++; return { content: [] }; } };
+  const host = new ToolHost({ context: { ...context, readOnly: false, autoApprove: false, config: { autoApprove: true } }, mcp,
+    authorize: async () => { prompts++; return false; } });
+  const result = await host.execute(call('write_file', { path: 'current-policy.txt', content: 'never' }));
+  assert.equal(result.isError, true);
+  assert.equal(fs.existsSync(path.join(directory, 'current-policy.txt')), false);
+  const native = await host.execute(call('mcp__proof__write'));
+  assert.equal(native.isError, true);
+  assert.equal(executions, 0); assert.equal(prompts, 2, text(native));
+});
+
+test('a thrown native tool error is an MCP error result rather than a successful receipt', async () => {
+  const mcp = { findTool: () => ({}), needsApproval: () => false, callToolResult: async () => { throw new Error('fixture transport disconnected'); } };
+  const host = new ToolHost({ context: { ...context, readOnly: false }, mcp });
+  const result = await host.execute(call('mcp__proof__read'));
+  assert.equal(result.isError, true);
+  assert.match(text(result), /fixture transport disconnected/);
 });

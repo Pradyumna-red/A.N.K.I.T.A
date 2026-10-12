@@ -4,21 +4,21 @@ import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { McpServer, createMcpHandler } from '@modelcontextprotocol/server';
 import { toNodeHandler, localhostHostValidation, localhostOriginValidation } from '@modelcontextprotocol/node';
 import { GATEWAY_HOST, EPHEMERAL_PORT, GATEWAY_MAX_BODY_BYTES, GATEWAY_TOKEN_BYTES, GATEWAY_PATH,
-  RESOURCE_METADATA_PATH, REQUEST_ID_HEADER, REQUEST_ID_SEPARATOR, GATEWAY_SERVER_NAME, GATEWAY_VERSION,
-  CORE_SURFACE, JSON_CONTENT_TYPE, JSON_RPC_VERSION, RPC_ADMISSION_ERROR } from './protocol.mjs';
+  RESOURCE_METADATA_PATH, REQUEST_ID_HEADER, GATEWAY_SERVER_NAME, GATEWAY_VERSION,
+  CORE_SURFACE, JSON_CONTENT_TYPE, JSON_RPC_VERSION, RPC_ADMISSION_ERROR, normalizeRequestId, HTTP_STATUS, TOOL_RESULT_MODE, LOCAL_HTTP_PROTOCOL } from './protocol.mjs';
 
 const gatewayContext = new AsyncLocalStorage(); // Private transport admission, inaccessible to arguments/renderer/page scripts.
 const TOOL_CALL_METHOD = 'tools/call';
 const TOOL_LIST_METHOD = 'tools/list';
 const POST_METHOD = 'POST';
 const GET_METHOD = 'GET';
-const INVALID_JSON_STATUS = 400;
-const BODY_LIMIT_STATUS = 413;
-const CLOSED_STATUS = 503;
-const CAPABILITY_STATUS = 401;
-const OWNER_STATUS = 403;
-const SUCCESS_STATUS = 200;
-const CONFLICT_STATUS = 409;
+const INVALID_JSON_STATUS = HTTP_STATUS.badRequest;
+const BODY_LIMIT_STATUS = HTTP_STATUS.payloadTooLarge;
+const CLOSED_STATUS = HTTP_STATUS.unavailable;
+const CAPABILITY_STATUS = HTTP_STATUS.unauthorized;
+const OWNER_STATUS = HTTP_STATUS.forbidden;
+const SUCCESS_STATUS = HTTP_STATUS.ok;
+const CONFLICT_STATUS = HTTP_STATUS.conflict;
 const NO_CACHE = 'no-store'; // Endpoint URL carries a secret capability and must never enter shared caches.
 
 function canonical(value) {
@@ -34,7 +34,7 @@ function nativeRequestId(req) {
   const entries = req.rawHeaders.filter((_, index) => index % 2 === 0).filter(name => name.toLowerCase() === REQUEST_ID_HEADER);
   const value = req.headers[REQUEST_ID_HEADER];
   if (entries.length !== 1 || typeof value !== 'string') return null;
-  return value.split(REQUEST_ID_SEPARATOR)[0].trim() || null;
+  return normalizeRequestId(value);
 }
 async function readBody(req, maxBytes) {
   if (Number(req.headers['content-length']) > maxBytes) throw Object.assign(new Error('Request body too large'), { status: BODY_LIMIT_STATUS });
@@ -71,7 +71,7 @@ export async function createToolGateway({ leaseId, hostForLease, resolveRequestO
       let result;
       try {
         result = await hostForLease(admitted.leaseId).execute({ id: receipt.id,
-          name: request.params.name, arguments: request.params.arguments ?? {} }, { signal: admitted.signal, resultMode: 'mcp' });
+          name: request.params.name, arguments: request.params.arguments ?? {} }, { signal: admitted.signal, resultMode: TOOL_RESULT_MODE.mcp });
       } catch { result = { content: [{ type: 'text', text: 'Error: tool outcome is uncertain; do not retry the side effect.' }], isError: true }; }
       await receipts.settle(receipt.id, result);
       return result;
@@ -122,7 +122,7 @@ export async function createToolGateway({ leaseId, hostForLease, resolveRequestO
     }
   }
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(EPHEMERAL_PORT, GATEWAY_HOST, resolve); });
-  address = `http://${GATEWAY_HOST}:${server.address().port}`;
+  address = `${LOCAL_HTTP_PROTOCOL}//${GATEWAY_HOST}:${server.address().port}`;
   return { url: address + endpointPath, metadata: address + metadataPath,
     close() {
       closePromise ??= (async () => {

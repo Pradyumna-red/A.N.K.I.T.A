@@ -47,16 +47,60 @@ the change does not upgrade those existing dependencies. No broad audit fix was 
 Npm replaced the worktree's dependency junction with an independent installation;
 the original checkout's dependency directory was not modified.
 
-## Remaining live gate
+## Subsequent regression results
 
-Full post-extraction regression run: 1219 tests, 1215 passed, 3 failed, 1 skipped.
-It caught a removed browser-classifier import still used by schema discovery and
-changed background refusal wording. Restored the import and carried the Agent's
-background scope explicitly into ToolHost; the unchanged affected suites then passed.
-A fresh full-suite run is required before claiming the branch is entirely green.
+The first full post-extraction run had 1219 tests, 1215 passed, 3 failed, 1 skipped.
+It caught a removed browser-classifier import still used by schema discovery and changed
+background refusal wording. Restoring the import and explicit background scope made the
+unchanged affected suites pass **19/19**. The subsequent full serial suite exited 0:
+**1229 tests, 1228 passed, 0 failed, 1 skipped**, 456903 ms.
+
+The final host policy regression then exposed stale config precedence and a missing
+standalone approval formatter. Current host approval takes priority over old config;
+the real formatter is shared with Agent, and cancellation tests require the approval
+callback to run before checking that no mutation occurred. The regression failed before
+the correction. The final affected suites, native adapters and complete renderer startup
+checks passed **96/96**, 0 failed; `npm run desktop:build` exited 0 after these changes.
+The earlier full-suite total predates this final host correction; a new full run is tracked
+separately and must pass before claiming the whole current branch is green.
+
+## Task 2: external companion attach checkpoint
+
+- Two new files initially failed against the absent bridge/readers. Offline companion,
+  evaluated-model and gateway tests then passed **14/14**.
+- Focused MIT DOM/Fiber functions are forked from the pinned CoS source, with SHA-256
+  provenance and unchanged license under `vendor/chat-on-steroids`. The fork contains no
+  app/overlays/assets, DOM mutation, page message listener, private analysis recording,
+  React action callback or private API request. Parser bounds are named and unchanged.
+- The generated manifest and wire data share host config. Permissions omit debugger
+  and cookies; injection occurs only after an explicit durable conversation binding.
+  Popup-origin checks reject website/content-script control messages. Navigation during
+  a read discards the observation. Same-title tabs do not substitute for the selected ID.
+- Pairing lives only in process RAM and Chrome session storage. A protected secret
+  provider is injectable; no plaintext pairing credential is persisted. Disconnect intent
+  survives reconnect attempts within the bridge lifecycle; process restart requires new
+  manual pairing. Desktop encrypted persistence is part of the gated later runtime.
+- `rtk proxy node scripts/verify-chatgpt-companion.mjs` exited 0:
+  `{"realHttpPairing":true,"selectedFixtureTab":true,"attributedLocalReadMatched":true,"disconnectRefusedTools":true,"browserRelaunches":0,"hostedChatGpt":false}`.
+  This is a real loopback bridge→gateway→filesystem round trip with synthetic tab/model
+  observations. It does not establish a browser/account connection.
+- Historical request IDs from the first read cannot authorize a new lease. Only subsequent
+  exact native request joins can execute. Missing, conflicting or stopped ownership fails
+  closed; account/model observations expire. No request argument supplies host context.
+- Setup instructions: `chatgpt-companion-setup.md`. One-time owner displays are explicitly
+  requested with `--print-pairing`; diagnostic mode prints no credential or MCP capability.
+
+## Remaining live gate
 
 Task 2 must prove the already-open Chrome conversation can call this read-only surface
 through a supported native ChatGPT connection, with exact request/conversation attribution.
 Account/model availability, custom MCP access, tunnel provisioning and current page
 compatibility remain unproved. Tasks 3–7 remain gated by that hosted proof. No desktop
 ChatGPT provider is advertised as ready, and no unlimited-model claim is made.
+The Chrome relay available to this chat has no targetable Chrome DOM surface; the Windows
+computer-use skill forbids handling security/privacy permission prompts. The local
+companion is ready for manual loading, pairing and model observation in the existing
+Chrome profile. No browser restart or profile transfer was attempted. `cloudflared` was
+not found on PATH; no supported HTTPS endpoint/tunnel or account connector is provisioned.
+The user handoff is pending. The final fresh branch review and packaged desktop/account
+workflow remain later gates; this checkpoint is not a released desktop browser provider.
