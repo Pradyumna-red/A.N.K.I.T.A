@@ -20,7 +20,7 @@ import { providerError, responseError } from './provider-errors.mjs';
 import { loadSkills, skillPromptLines, activeAutomaticSkills } from './skills.mjs';
 import { isToolFailure, verdictFor, verificationFooter } from './verify.mjs';
 import { browserScreenshotImage, MAX_BROWSER_SCREENSHOTS_PER_TURN } from '../../tools/browser/screenshots.mjs';
-import { managedMcpSummaries } from '../integrations/browser-routing.mjs';
+import { managedMcpSummaries, isBrowserMcpTool } from '../integrations/browser-routing.mjs';
 import { parseToolName } from '../integrations/mcp-manager.mjs';
 import { attachMcpImages, MAX_MCP_IMAGES_PER_TURN, messagesForModel } from '../integrations/mcp-images.mjs';
 import { COMPUTER_MCP_ID, COMPUTER_GUIDANCE, COMPUTER_READ_TOOLS, COMPUTER_TOOLS, computerObservationTargets, formatComputerTargets } from '../integrations/computer-use.mjs';
@@ -898,7 +898,7 @@ export class Agent {
           Object.defineProperty(executionState, name, { get: () => this[name], set: value => { this[name] = value; } });
         }
         return { ...this.toolContext, cwd: this.cwd, workspacePath: this.workspacePath, config: this.config,
-          ui: this.ui, state: this.state, executionState, allowedTools: this.allowedTools,
+          ui: this.ui, state: this.state, executionState, allowedTools: this.allowedTools, backgroundToolScope: Boolean(this.allowedTools),
           signal: this.abort?.signal, autoApprove: this.autoApprove,
           skillsInteractive: this.skillsEnabled, skillsEnabled: this.availableSkills().length > 0,
           disabledSkills: this.disabledSkills, projectId: this.projectId, mcp: this.mcp,

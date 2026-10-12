@@ -49,6 +49,12 @@ the original checkout's dependency directory was not modified.
 
 ## Remaining live gate
 
+Full post-extraction regression run: 1219 tests, 1215 passed, 3 failed, 1 skipped.
+It caught a removed browser-classifier import still used by schema discovery and
+changed background refusal wording. Restored the import and carried the Agent's
+background scope explicitly into ToolHost; the unchanged affected suites then passed.
+A fresh full-suite run is required before claiming the branch is entirely green.
+
 Task 2 must prove the already-open Chrome conversation can call this read-only surface
 through a supported native ChatGPT connection, with exact request/conversation attribution.
 Account/model availability, custom MCP access, tunnel provisioning and current page

@@ -66,7 +66,9 @@ export class ToolHost {
     if (combined.aborted) return textResult(CANCELLED);
     if (!args || typeof args !== 'object' || Array.isArray(args)) return textResult('Error: arguments must be an object.');
     if (!focusAllows(ctx.state, name)) return textResult('Error: This tool is outside the current tool focus. Use find_tools with scope="general" to explicitly change methods before executing it.');
-    if (ctx.allowedTools && !ctx.allowedTools.has(name)) return textResult('Error: This tool is not available in this execution context.');
+    if (ctx.allowedTools && !ctx.allowedTools.has(name)) return textResult(ctx.backgroundToolScope
+      ? 'Error: This tool is not available in background browser jobs.'
+      : 'Error: This tool is not available in this execution context.');
     this.onEvent?.({ type: 'tool-call', call });
     let result;
     try {
