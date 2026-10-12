@@ -1,7 +1,7 @@
 /** Serialized into the MAIN world of one selected tab. Only allowlisted metadata is returned.
  * No page message listener, secret, prompt content, cookies, action callback or private API request.
  */
-export function readSelectedPage(conversationId, config, binding) {
+export function readSelectedPage(conversationId, config, binding, readback) {
   const empty = { conversationId: null, accountReady: false, models: [], selectedModel: null, requestIds: [], observationReason: config.observationReasons.route };
   const readers = globalThis[config.readerGlobal];
   if (location.origin !== config.chatgptOrigin || location.pathname.match(new RegExp(config.conversationPattern, 'i'))?.[1] !== conversationId) return empty;
@@ -11,7 +11,10 @@ export function readSelectedPage(conversationId, config, binding) {
   const streamIds = observerReady ? origins.requestIds(binding) : [];
   const evidence = () => ({ observerReady, streamIds: streamIds.length, domIds: Math.min(ids.size, config.maxRequests) });
   const projectIds = () => [...new Set([...ids, ...streamIds])].slice(-config.maxRequests); // Fresh stream evidence takes precedence over historical DOM capacity.
-  const unavailable = (reason, pageReady = false) => ({ ...empty, conversationId, accountReady: pageReady, requestIds: projectIds(), requestEvidence: evidence(), observationReason: reason });
+  const deliveryReader = globalThis[config.deliveryGlobal];
+  if (readback) deliveryReader?.watch(readback, config);
+  const delivery = deliveryReader?.snapshot(binding, config) ?? null;
+  const unavailable = (reason, pageReady = false) => ({ ...empty, conversationId, accountReady: pageReady, requestIds: projectIds(), requestEvidence: evidence(), delivery, observationReason: reason });
   if (!readers) return unavailable(config.observationReasons.readers);
   let pageReady = false;
   try {
@@ -42,6 +45,6 @@ export function readSelectedPage(conversationId, config, binding) {
     const selected = picker.choices.find(choice => choice.bucket === picker.currentBucket);
     return { conversationId, accountReady: true, selectedModel: selected?.id ?? null, selectedEffort: selected?.effort ?? null,
       models: picker.choices.slice(0, config.maxModels).map(choice => ({ id: choice.id, label: choice.label, effort: choice.effort, available: choice.available === true })),
-      requestIds: projectIds(), requestEvidence: evidence(), observationReason: null };
+      requestIds: projectIds(), requestEvidence: evidence(), delivery, observationReason: null };
   } catch { return unavailable(config.observationReasons.error, pageReady); }
 }

@@ -282,7 +282,8 @@ arrived before observation, waited for that join, and read the unique scratch by
 expected an error result; the real client rejects HTTP 403. That assertion was corrected
 without changing production admission. Ignored trace: `.commandcode/verify-request-stream-live.mjs`.
 
-The desktop build exited 0; the new full serial suite is still running. The user reloaded and
+The desktop build exited 0; the full serial suite exited 0: **1257 tests, 1256 passed,
+0 failed, 1 existing Windows/POSIX skip**, 569667 ms (request-reader checkpoint `70a6740`). The user reloaded and
 paired the new owner runner, reused the installed native app/tunnel, and sent the proof
 request in the selected saved conversation. The safe local trace confirms
 `requestEvidence:{observerReady:true,streamIds:1,domIds:0}` followed by
@@ -292,3 +293,45 @@ request in the selected saved conversation. The safe local trace confirms
 current model without an observed catalog or an invented model name. Existing
 WebSockets opened before attachment are not retroactively observable; additional handoff/recovery,
 desktop Send/Stop/attachments/recovery, packaging and final branch review remain uncovered.
+
+## Durable Send and reply custody
+
+The host now records queue/claim/dispatch before granting the companion one native Send.
+Atomic, versioned profile-local records include the exact host binding and native baseline;
+file contents are flushed before replacement. Unsupported/corrupt state refuses work.
+Same-operation changed text/owner and reused native user receipts are rejected. A lost
+acknowledgement or restart becomes uncertain and never earns another click. Stop intent
+is fenced in the ledger; actual browser generation/ToolHost Stop integration remains Task 6.
+
+The companion uses CoS's native editor insertion/control/acceptance rules. It preserves a
+human draft, refuses a busy page, waits briefly for the actual control to enable, and spends
+page custody before clicking. Only a fresh exact native user row supplies acceptance.
+Final completion requires that user's exact conversation/turn and a terminal public answer;
+commentary, private analysis, quiet time and unrelated replies cannot settle it. Both classic
+message objects and the current typed shell are covered. An owned public widget fallback
+preserves authored Markdown and code escapes. No guessed Enter or automatic model change
+was added; delivery currently inherits the chat's existing model.
+
+The new store/delivery files first failed for missing modules. HTTP Send authorization then
+failed against the read-only-only bridge before its command paths were added. Reload
+readback and typed-shell projections each had their own observed RED failures, then GREEN.
+Latest affected suites: **57/57 passed**, 8623 ms. Real isolated Chromium tests send once,
+read an accepted native user and exact final independently, preserve busy/human drafts,
+handle delayed control readiness, lose an ACK, reopen the ledger, reload/hydrate the page
+and finish reading the same turn with exactly one accepted question. Native hosted read
+is separately proven above; these delivery pages are fixtures, not the user's account.
+
+The desktop build exited 0 (`built in 6.25s`); both live local protocol checks still pass:
+`realHttpPairing:true,attributedLocalReadMatched:true,disconnectRefusedTools:true` and
+`actualIsolatedChromium:true,realHttpStream:true,exactJoinReadMatched:true,`
+`originalResponsePreserved:true,disconnectedCallRefused:true,elapsedMs:388`.
+Both explicitly report `hostedChatGpt:false`. The existing account proof remains the
+separate actual hosted read above. `git diff --check` passed.
+
+The existing proof runner remains read-only scratch and contains no Send controller.
+Desktop provider routing and an actual account desktop Send are the next gate; no desktop
+provider, full Stop, attachment or packaged shipment claim is made at this checkpoint.
+Known limits: 64 Ki characters/public final projection (oversized answers stay unsettled),
+explicit model changes are refused, retained unchanged draft residue needs user clearing,
+and file fsync/atomic replacement does not establish machine-power-loss durability on all
+filesystems. Existing socket interception and packaged recovery remain uncovered.

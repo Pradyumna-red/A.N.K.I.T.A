@@ -22,7 +22,7 @@ async function body(req) {
 }
 
 /** External browser transport only. Host context/secret admission never comes from page messages. */
-export async function createCompanionBridge({ config, secrets, store, onObservation } = {}) {
+export async function createCompanionBridge({ config, secrets, store, onObservation, delivery } = {}) {
   if (!config?.workspacePath || !config?.threadId || !secrets?.withSecret) throw new TypeError('Bridge requires explicit workspace, thread and protected secret provider');
   const modelMode = config.modelMode ?? MODEL_MODES.explicit;
   const workspacePath = fs.realpathSync(config.workspacePath);
@@ -74,7 +74,11 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
     },
     async poll() {
       if (!pairing || !binding || disconnected) return { binding: null };
-      nonce = randomUUID(); return { binding: { ...binding }, nonce };
+      const current = binding;
+      const operation = delivery && view().status === BRIDGE_READY_STATUS ? await delivery.poll(current) : null;
+      const readback = delivery ? await delivery.readback(current) : null;
+      if (!sameBinding(current, binding) || disconnected) return { binding: null };
+      nonce = randomUUID(); return { binding: { ...binding }, nonce, operation, readback };
     },
     async observe(input) {
       if (disconnected || !sameBinding(input?.binding, binding) || !nonce || input.nonce !== nonce || input.snapshot?.conversationId !== binding.conversationId) return false;
@@ -93,7 +97,21 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
         observationReason: Object.values(OBSERVATION_REASONS).includes(value.observationReason) ? value.observationReason : null };
       observedAt = Date.now();
       onObservation?.({ binding: { ...binding }, ...observation, modelMode, observedAt });
+      if (delivery && value.delivery) {
+        await delivery.receipt(value.delivery.operationId, binding, value.delivery.receipt);
+        if (value.delivery.answer) await delivery.observe(value.delivery.operationId, binding, value.delivery.answer);
+      }
       return true;
+    },
+    async authorize(input) {
+      if (!delivery || disconnected || !sameBinding(input?.binding, binding) || view().status !== BRIDGE_READY_STATUS) return { allowed: false };
+      if (!Array.isArray(input.witness?.baselineUserIds)) return { allowed: false };
+      return { allowed: await delivery.authorize(input.operationId, binding, input.witness) };
+    },
+    async acknowledge(input) {
+      if (!delivery || disconnected || !sameBinding(input?.binding, binding)) throw statusError('Browser receipt binding is unavailable', HTTP_STATUS.forbidden);
+      if (input.failure === true) return { failed: Boolean(await delivery.fail(input.operationId, binding)) };
+      return { accepted: await delivery.receipt(input.operationId, binding, input.receipt) };
     },
     async resolveRequestOwner(input) {
       if (view().status !== BRIDGE_READY_STATUS) throw new Error('Request owner browser binding is unavailable');
@@ -104,7 +122,9 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
       await store?.save?.({ desired: false }); return { status: 'disconnected' };
     },
     async enqueue(operation) {
-      if (operation?.kind !== 'models' || !sameBinding(operation.binding, binding)) throw new Error('Only bound read-only model observations are enabled at this milestone');
+      if (!sameBinding(operation?.binding, binding)) throw new Error('Operation does not own the current browser binding');
+      if (operation.kind === 'send' && delivery) return delivery.enqueue(operation);
+      if (operation.kind !== 'models') throw new Error('Only bound read-only model observations are enabled at this milestone');
       return { id: randomUUID() };
     },
     async close() { closing = true; owners.clear(); await Promise.allSettled([...active]); await new Promise(resolve => server.close(resolve)); },
@@ -127,6 +147,8 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
     if (route === ROUTES.bind && req.method === POST) return reply(res, HTTP_STATUS.ok, await bridge.bind({ ...input, threadId: config.threadId, workspacePath }));
     if (route === ROUTES.poll && req.method === GET) return reply(res, HTTP_STATUS.ok, await bridge.poll());
     if (route === ROUTES.observe && req.method === POST) return reply(res, HTTP_STATUS.ok, { accepted: await bridge.observe(input) });
+    if (route === ROUTES.authorize && req.method === POST) return reply(res, HTTP_STATUS.ok, await bridge.authorize(input));
+    if (route === ROUTES.receipt && req.method === POST) return reply(res, HTTP_STATUS.ok, await bridge.acknowledge(input));
     if (route === ROUTES.disconnect && req.method === POST) return reply(res, HTTP_STATUS.ok, await bridge.disconnect());
     throw statusError('Unknown companion route', HTTP_STATUS.notFound);
   }

@@ -44,12 +44,17 @@ export const OBSERVATION_MESSAGES = Object.freeze({
   [OBSERVATION_REASONS.ambiguous]: 'Connected · the current model controls are ambiguous. Close extra model menus and Observe again.',
   [OBSERVATION_REASONS.error]: 'Connected · the page reader could not inspect this conversation.',
 }); // Human-readable explanations for safe diagnostic codes; no account/model availability is invented.
-export const ROUTES = Object.freeze({ pair: '/pair', tabs: '/tabs', bind: '/bind', poll: '/poll', observe: '/observe', disconnect: '/disconnect', status: '/status' });
+export const ROUTES = Object.freeze({ pair: '/pair', tabs: '/tabs', bind: '/bind', poll: '/poll', observe: '/observe', authorize: '/authorize', receipt: '/receipt', disconnect: '/disconnect', status: '/status' });
 export const SESSION_STORAGE_KEY = 'ankitaCompanionSession'; // Extension memory-only key; no pairing secret written to profile storage.
 export const EXTENSION_ID_PATTERN = /^[a-p]{32}$/; // Chrome's generated extension ID format.
 export const CONVERSATION_PATTERN = /(?:^|\/)c\/([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})(?:\/|$)/i; // Durable ChatGPT conversation route, including projects/custom GPTs.
 export const READER_GLOBAL = 'AnkitaPageReaders';
 export const ORIGINS_GLOBAL = 'AnkitaRequestOrigins'; // Passive response identity namespace; no page message authority.
+export const DELIVERY_GLOBAL = 'AnkitaBrowserDelivery'; // One native Send custody per operation; host dispatch remains separate.
+export const MAX_OPERATION_TEXT_CHARS = 240000; // Characters/authored input, matching CoS's bounded delivery contract.
+export const MAX_FINAL_TEXT_CHARS = 64 * 1024; // Characters/public answer, below the observation HTTP byte budget for UTF-8 text.
+export const SEND_READY_MS = 5000; // Milliseconds/native editor/control readiness; shorter than the fresh-page admission window.
+export const SEND_READY_POLL_MS = 100; // Milliseconds/readiness predicate; repeats observation, never a click or authorization.
 
 export function conversationFromUrl(value) {
   try { const url = new URL(value); return url.origin === CHATGPT_ORIGIN ? url.pathname.match(CONVERSATION_PATTERN)?.[1] ?? null : null; }
@@ -59,6 +64,8 @@ export const browserWire = Object.freeze({ version: COMPANION_VERSION, pollMs: C
   chatgptOrigin: CHATGPT_ORIGIN, routes: ROUTES, storageKey: SESSION_STORAGE_KEY, maxTabs: MAX_TABS, maxRequests: MAX_REQUEST_IDS,
   maxModels: MAX_MODELS, maxIdChars: MAX_ID_CHARS, conversationPattern: CONVERSATION_PATTERN.source, readerGlobal: READER_GLOBAL,
   originsGlobal: ORIGINS_GLOBAL, observationMaxAgeMs: OBSERVATION_MAX_AGE_MS,
+  deliveryGlobal: DELIVERY_GLOBAL, maxOperationTextChars: MAX_OPERATION_TEXT_CHARS, maxFinalTextChars: MAX_FINAL_TEXT_CHARS,
+  sendReadyMs: SEND_READY_MS, sendReadyPollMs: SEND_READY_POLL_MS,
   maxTurns: MAX_TURN_SECTIONS, maxPickers: MAX_PICKER_CANDIDATES, modelTriggers: MODEL_TRIGGER_SELECTORS, formModelTriggers: FORM_MODEL_TRIGGER_SELECTOR,
   modelTriggerRoles: MODEL_TRIGGER_ROLES, modelTriggerExclusions: MODEL_TRIGGER_EXCLUSIONS, composerPlusId: COMPOSER_PLUS_ID,
   composerForm: COMPOSER_FORM_SELECTOR, testIdAttribute: DOM_TEST_ID_ATTRIBUTE,

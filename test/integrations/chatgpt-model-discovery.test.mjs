@@ -88,3 +88,35 @@ test('completion evidence excludes commentary, private analysis and unfinished r
   assert.equal(reader.finalMessage({ ...final, channel: 'analysis' }), false);
   assert.equal(reader.finalMessage({ ...final, end_turn: false }), false);
 });
+
+test('native shell items expose exact user/final identities while excluding nested working prose and reasoning', () => {
+  const reader = adapter({ querySelectorAll: () => [] });
+  const turnId = crypto.randomUUID(), userId = crypto.randomUUID(), finalId = crypto.randomUUID();
+  const entry = { id: turnId, turn: { status: 'complete', items: [
+    { type: 'user-message', messageId: userId, serverMessageId: userId, message: 'authored question' },
+    { type: 'chatgpt-reasoning-group', items: [{ type: 'assistant-message', phase: 'final_answer', content: 'private interim', completed: true }] },
+    { type: 'assistant-message', messageId: finalId, phase: 'final_answer', completed: true, content: 'public final' },
+  ] } };
+  const messages = reader.shellTurnMessages({ memoizedProps: { entry } }, turnId, 1000);
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0].id, userId);
+  assert.equal(messages[1].id, finalId);
+  assert.equal(reader.finalMessage(messages[1]), true);
+  assert.equal(JSON.stringify(messages).includes('private interim'), false);
+  assert.equal(reader.shellTurnMessages({ memoizedProps: { entry } }, 'another turn', 1000).length, 0);
+  entry.turn.status = 'running';
+  assert.equal(reader.finalMessage(reader.shellTurnMessages({ memoizedProps: { entry } }, turnId, 1000)[1]), false);
+});
+
+test('native shell final widgets use only their exact owned public fallback and preserve code escapes', () => {
+  const reader = adapter({ querySelectorAll: () => [] });
+  const turnId = crypto.randomUUID(), messageId = crypto.randomUUID();
+  const item = { type: 'assistant-message', messageId, phase: 'final_answer', completed: true,
+    content: '::chatgpt-content-reference{index=0}', contentReferences: [{ type: 'dil', source_message_id: messageId,
+      model_dil_v2: { fallbackMarkdown: '2\\^10 = 1024 \\[ok\\] and `x\\_y`' } }] };
+  const entry = { id: turnId, turn: { status: 'complete', items: [item] } };
+  const messages = reader.shellTurnMessages({ memoizedProps: { entry } }, turnId, 1000);
+  assert.equal(messages[0].content.parts[0], '2^10 = 1024 [ok] and `x\\_y`');
+  item.contentReferences[0].source_message_id = 'foreign answer';
+  assert.equal(reader.shellTurnMessages({ memoizedProps: { entry } }, turnId, 1000)[0].content.parts[0], item.content);
+});

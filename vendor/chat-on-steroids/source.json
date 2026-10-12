@@ -10,7 +10,14 @@
       "functions": [
         "onKeptPage",
         "composerCssVisible",
-        "composer"
+        "composer",
+        "insertPrompt",
+        "sendControls",
+        "sendButton",
+        "sendButtonEnabled",
+        "send",
+        "localeFreeSendControls",
+        "stopControls"
       ]
     },
     {
@@ -25,7 +32,11 @@
         "readPickerSnapshot",
         "readShellPickerSnapshot",
         "shellProExecutionModel",
-        "shellLaneTransportEffort"
+        "shellLaneTransportEffort",
+        "shellTurnSource",
+        "shellItemText",
+        "unescapeFallbackMarkdown",
+        "turnEndMessageId"
       ]
     },
     {

@@ -9,6 +9,9 @@ var AnkitaPageReaders = (() => {
   const MAX_LANES = 12; // Account-evaluated lanes/read; upstream parser bound.
   const MAX_LABEL_CHARS = 80; // Characters/native model label or group identity; never arbitrary account state.
   const MAX_SIBLING_NODES = 4096; // Nodes/committed-path check; cycle/runaway budget from the source reader.
+  const MAX_SHELL_CLIMB = 16; // Fiber ancestors/native typed exchange, upstream shell-source bound.
+  const MAX_SHELL_ITEMS = 400; // Typed items/exchange, upstream row bound.
+  const ONLY_CONTENT_REFERENCES = /^\s*(?:::chatgpt-content-reference\{[^}\n]*\}\s*)+$/; // Native public-widget reference grammar.
   const ROOT_TAG = 3; // React host-root tag used by the upstream committed-tree proof.
   const FIBER_PREFIX = '__reactFiber$'; // React's DOM-owned opaque Fiber key prefix.
   const MODEL_ID = /^[a-zA-Z0-9._-]{1,80}$/; // Characters/native model slug, same upstream bound as labels.
@@ -117,6 +120,62 @@ var AnkitaPageReaders = (() => {
       if (Array.isArray(props.allMessages)) return props.allMessages;
     }
     return null;
+  }
+
+  function unescapeFallbackMarkdown(markdown) {
+    let fence = null;
+    return markdown.split('\n').map(line => {
+      const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+      if (fence) {
+        if (marker && marker[0] === fence[0] && marker.length >= fence.length && !line.slice(line.indexOf(marker) + marker.length).trim()) fence = null;
+        return line;
+      }
+      if (marker && !(marker[0] === '`' && line.slice(line.indexOf(marker) + marker.length).includes('`'))) { fence = marker; return line; }
+      let out = '';
+      for (let at = 0; at < line.length;) {
+        const char = line[at];
+        if (char === '\\' && /[!-\/:-@[-`{-~]/.test(line[at + 1] || '')) { out += line[at + 1]; at += 2; continue; }
+        if (char === '`') {
+          const run = /^`+/.exec(line.slice(at))[0];
+          const close = new RegExp(`(?<!\`)${run}(?!\`)`).exec(line.slice(at + run.length));
+          if (close) { const end = at + run.length + close.index + run.length; out += line.slice(at, end); at = end; continue; }
+          out += run; at += run.length; continue;
+        }
+        out += char; at++;
+      }
+      return out;
+    }).join('\n');
+  }
+  function shellItemText(item, maxChars) {
+    const content = typeof item?.content === 'string' ? item.content : '';
+    if (!ONLY_CONTENT_REFERENCES.test(content)) return content;
+    const id = str(item.messageId);
+    const own = (Array.isArray(item.contentReferences) ? item.contentReferences : []).slice(0, MAX_SHELL_ITEMS).filter(reference =>
+      reference?.type === 'dil' && id && reference.source_message_id === id && typeof reference.model_dil_v2?.fallbackMarkdown === 'string' && reference.model_dil_v2.fallbackMarkdown.trim());
+    return own.length === 1 && own[0].model_dil_v2.fallbackMarkdown.length <= maxChars ? unescapeFallbackMarkdown(own[0].model_dil_v2.fallbackMarkdown) : content;
+  }
+  function shellTurnMessages(fiber, turnId, maxChars) {
+    let entry = null;
+    for (let at = fiber, up = 0; at && up < MAX_SHELL_CLIMB; up++, at = at.return) {
+      if (Array.isArray(at.memoizedProps?.entry?.turn?.items)) { entry = at.memoizedProps.entry; break; }
+    }
+    if (!entry) return null; // No typed shell: the classic turn reader may still apply.
+    if (!turnId || entry.id !== turnId || entry.turn.items.length > MAX_SHELL_ITEMS) return [];
+    const messages = [], seen = new Set();
+    for (const item of entry.turn.items) {
+      if (item?.type !== 'user-message' && item?.type !== 'assistant-message') continue;
+      const user = item.type === 'user-message', id = str(item.messageId) || (user ? str(item.serverMessageId) : null);
+      if (!id) continue;
+      if (seen.has(id) || (user && item.serverMessageId && item.messageId && item.serverMessageId !== item.messageId)) return [];
+      seen.add(id);
+      const final = !user && item.phase === 'final_answer';
+      if (!user && !final) continue; // Working groups and interim/private prose are outside delivery history.
+      const text = user ? item.message : shellItemText(item, maxChars);
+      const completed = final && item.completed === true && entry.turn.status === 'complete';
+      messages.push({ id, author: { role: user ? 'user' : 'assistant' }, content: { content_type: 'text', parts: [typeof text === 'string' ? text : ''] },
+        channel: user ? null : 'final', end_turn: completed, status: completed ? 'finished_successfully' : 'in_progress', metadata: {} });
+    }
+    return messages;
   }
 
   function conversationEvidenceOf(fiber) {
@@ -257,5 +316,5 @@ var AnkitaPageReaders = (() => {
   }
   const finalMessage = message => message?.author?.role === 'assistant' && message.channel === 'final' &&
     message.end_turn === true && message.status === 'finished_successfully';
-  return { composer, fiberOf, turnMessagesOf, conversationEvidenceOf, readPickerSnapshot, readShellPickerSnapshot, finalMessage };
+  return { composer, fiberOf, turnMessagesOf, shellTurnMessages, conversationEvidenceOf, readPickerSnapshot, readShellPickerSnapshot, finalMessage };
 })();

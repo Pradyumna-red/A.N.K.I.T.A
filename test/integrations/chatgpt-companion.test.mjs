@@ -7,6 +7,8 @@ import { createCompanionBridge } from '../../services/chatgpt-bridge/server.mjs'
 import { RequestOwners } from '../../src/integrations/chatgpt-browser/request-owners.mjs';
 import { observeBoundTab, trustedPopup } from '../../desktop/chatgpt-companion/background.mjs';
 import { companionManifest } from '../../services/chatgpt-bridge/config.mjs';
+import { BrowserOperationStore } from '../../src/integrations/chatgpt-browser/operation-store.mjs';
+import { BrowserDelivery } from '../../src/integrations/chatgpt-browser/delivery.mjs';
 
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-companion-'));
 test.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
@@ -19,8 +21,8 @@ const config = { workspacePath: workspace, threadId: 'proof-thread' };
 const secrets = { withSecret: async (_, callback) => callback(secret) };
 const snapshot = { accountReady: true, models: [{ id: 'observed-model', label: 'Observed model', available: true }], selectedModel: 'observed-model', requestIds: ['native-owned'] };
 
-async function paired(extraConfig = {}) {
-  const bridge = await createCompanionBridge({ config: { ...config, ...extraConfig }, secrets });
+async function paired(extraConfig = {}, delivery) {
+  const bridge = await createCompanionBridge({ config: { ...config, ...extraConfig }, secrets, delivery });
   await bridge.pair({ extensionId, version: 1, browserId });
   await bridge.reportTabs({ browserId, tabs: [{ id: 1, url: `https://chatgpt.com/c/${conversationId}`, title: 'Same title' }, { id: 2, url: `https://chatgpt.com/c/${otherConversation}`, title: 'Same title' }, { id: 3, url: 'https://unrelated.invalid/', title: 'Private unrelated tab' }] });
   return bridge;
@@ -137,6 +139,36 @@ test('exact request join refuses unknown requests, changed lease and conflicting
   await assert.rejects(owners.resolve({ leaseId: binding.leaseId, requestId: 'request-one' }), /ambiguous|conflict/i);
 });
 
+test('actual HTTP command authorization spends its durable Send once and exact observed receipts settle it', async () => {
+  const store = new BrowserOperationStore({ directory: path.join(workspace, crypto.randomUUID()) });
+  const delivery = new BrowserDelivery({ store });
+  const bridge = await paired({ modelMode: 'current' }, delivery);
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}`, Origin: `chrome-extension://${extensionId}` };
+  const post = async (route, body) => {
+    const result = await fetch(bridge.address + route, { method: 'POST', headers, body: JSON.stringify(body) });
+    assert.equal(result.status, 200); return result.json();
+  };
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    const input = { id: crypto.randomUUID(), binding, kind: 'send', text: 'unique HTTP question' };
+    await bridge.enqueue(input);
+    assert.equal((await bridge.poll()).operation, null, 'no fresh page evidence, no command');
+    const priming = await bridge.poll();
+    await bridge.observe({ binding, nonce: priming.nonce, snapshot: { ...snapshot, conversationId } });
+    const offered = await (await fetch(bridge.address + '/poll', { headers })).json();
+    assert.equal(offered.operation.id, input.id);
+    assert.equal((await post('/authorize', { binding, operationId: input.id, witness: { baselineUserIds: [] } })).allowed, true);
+    assert.equal((await post('/authorize', { binding, operationId: input.id, witness: { baselineUserIds: [] } })).allowed, false);
+    const receipt = { conversationId, userMessageId: crypto.randomUUID(), turnId: crypto.randomUUID() };
+    await post('/receipt', { binding, operationId: input.id, receipt });
+    const next = await bridge.poll();
+    await bridge.observe({ binding, nonce: next.nonce, snapshot: { ...snapshot, conversationId, delivery: { operationId: input.id, receipt,
+      answer: { ...receipt, assistantMessageId: crypto.randomUUID(), role: 'assistant', channel: 'final', end_turn: true, status: 'finished_successfully', text: 'unique HTTP answer' } } } });
+    assert.equal((await store.get(input.id)).outcome, 'completed');
+    assert.equal((await bridge.poll()).operation, null);
+  } finally { await bridge.close(); }
+});
+
 test('only the actual extension popup can control pairing; web/content-script messages are refused', () => {
   const runtime = { id: extensionId, getURL: file => `chrome-extension://${extensionId}/${file}` };
   const sender = { id: extensionId, url: runtime.getURL('popup.html') };
@@ -167,7 +199,7 @@ test('the bound page receives only opaque ownership scope, never host workspace 
   let injected;
   const chromeApi = { tabs: { get: async () => ({ url: `https://chatgpt.com/c/${conversationId}` }) }, scripting: { executeScript: async request => {
     if (request.func) { injected = request.args; return [{ result: { conversationId } }]; }
-    assert.deepEqual(request.files, ['upstream/readers.js', 'upstream/request-origins.js']); return [];
+    assert.deepEqual(request.files, ['upstream/readers.js', 'upstream/request-origins.js', 'upstream/delivery.js']); return [];
   } } };
   await observeBoundTab(chromeApi, binding);
   assert.deepEqual(injected[2], { leaseId: binding.leaseId, epoch: binding.epoch, tabId: binding.tabId, conversationId });
