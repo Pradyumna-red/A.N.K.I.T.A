@@ -61,8 +61,9 @@ the real formatter is shared with Agent, and cancellation tests require the appr
 callback to run before checking that no mutation occurred. The regression failed before
 the correction. The final affected suites, native adapters and complete renderer startup
 checks passed **96/96**, 0 failed; `npm run desktop:build` exited 0 after these changes.
-The earlier full-suite total predates this final host correction; a new full run is tracked
-separately and must pass before claiming the whole current branch is green.
+The earlier full-suite total predates this final host correction. The final serial run
+against commit `10cb119` exited 0: **1231 tests, 1230 passed, 0 failed, 1 skipped**,
+435069 ms. The skip is the existing Windows/POSIX fixture branch.
 
 ## Task 2: external companion attach checkpoint
 
@@ -104,3 +105,31 @@ Chrome profile. No browser restart or profile transfer was attempted. `cloudflar
 not found on PATH; no supported HTTPS endpoint/tunnel or account connector is provisioned.
 The user handoff is pending. The final fresh branch review and packaged desktop/account
 workflow remain later gates; this checkpoint is not a released desktop browser provider.
+
+## Execution rulings and deferred work
+
+- Reused the attached isolated worktree on a new branch, preserving original edits and
+  the separate computer-use checkout. Installed Git Bash was used for the plan ledger
+  scripts because no `bash` executable was available on PATH.
+- Sonatype's service was unavailable; actual registry/provenance/license/integrity,
+  signatures/attestations and vulnerability audits were used, with the missing scan
+  disclosed. No dependency trust score or account capability is inferred.
+- Lifecycle-local MemoryToolReceipts arrived ahead of Task 5 to prove duplicate-call
+  handling in Task 1. They are deliberately unsuitable for restart/mutation recovery;
+  the gateway gets a new secret URL on each lifecycle.
+- Used the real McpClient `callTool` method; `callToolResult` belongs to the manager.
+  Native structuredContent is carried optionally to the API adapter to preserve Cua
+  target identity, while native publication emits bounded metadata/content.
+- Npm omitted the existing Windows compiler platform package. The original exact
+  version was restored after OS/architecture/name/version checks; no compiler upgrade
+  or manifest change was introduced.
+- Proof pairing remains memory-only instead of creating a plaintext credential file.
+  Encrypted desktop persistence and deliberate restart/reconnect UX are later tasks.
+- Native account proof remains the binding gate. Manual extension/connection permissions
+  cannot be performed by this Windows skill, and no public endpoint is provisioned.
+  Tasks 3–7 therefore remain pending rather than treating local fixtures as account proof.
+- Deferred API interface work: operation-store durability, Send/accept/completion receipts,
+  tool receipt persistence, complete native surface publication, full action/image
+  aggregate budgets, attachments/Stop/recovery, desktop routing/packaging and final fresh
+  review. The current bridge's model-only enqueue identifier is not a durable Send receipt
+  and must be replaced at Task 3 before any delivery acknowledgment is exposed.
