@@ -2,18 +2,18 @@
  * No page message listener, secret, prompt content, cookies, action callback or private API request.
  */
 export function readSelectedPage(conversationId, config) {
-  const empty = { conversationId: null, accountReady: false, models: [], selectedModel: null, requestIds: [] };
+  const empty = { conversationId: null, accountReady: false, models: [], selectedModel: null, requestIds: [], observationReason: config.observationReasons.route };
   const readers = globalThis[config.readerGlobal];
-  if (!readers || location.origin !== config.chatgptOrigin || location.pathname.match(new RegExp(config.conversationPattern, 'i'))?.[1] !== conversationId) return empty;
+  if (location.origin !== config.chatgptOrigin || location.pathname.match(new RegExp(config.conversationPattern, 'i'))?.[1] !== conversationId) return empty;
+  const ids = new Set();
+  const unavailable = (reason, pageReady = false) => ({ ...empty, conversationId, accountReady: pageReady, requestIds: [...ids].slice(-config.maxRequests), observationReason: reason });
+  if (!readers) return unavailable(config.observationReasons.readers);
+  let pageReady = false;
   try {
-    if (!readers.composer()) return { ...empty, conversationId };
-    const nodes = [...document.querySelectorAll(config.modelTriggers)].filter(node => !node.closest(config.hidden) && node.getClientRects().length > 0);
-    if (nodes.length > config.maxPickers) return { ...empty, conversationId };
-    const states = nodes.map(node => readers.readPickerSnapshot(node) || readers.readShellPickerSnapshot(node)).filter(Boolean);
-    if (states.length !== 1) return { ...empty, conversationId };
-    const picker = states[0];
-    const selected = picker.choices.find(choice => choice.bucket === picker.currentBucket);
-    const ids = new Set();
+    const composer = readers.composer();
+    if (!composer) return unavailable(config.observationReasons.composer);
+    // Current-model mode leaves the browser's selection alone; native ownership never depends on picker visibility.
+    pageReady = true;
     for (const section of [...document.querySelectorAll(config.turns)].slice(-config.maxTurns)) {
       if (section.closest(config.hidden) || section.getClientRects().length === 0) continue;
       const fiber = readers.fiberOf(section);
@@ -24,8 +24,19 @@ export function readSelectedPage(conversationId, config) {
         if (typeof id === 'string' && id.length <= config.maxIdChars && new RegExp(config.requestIdPattern, 'i').test(id)) ids.add(id);
       }
     }
+    const form = composer.closest(config.composerForm);
+    const nodes = [...new Set([...(form?.querySelectorAll(config.formModelTriggers) ?? []), ...document.querySelectorAll(config.modelTriggers)])]
+      .filter(node => node.matches(config.modelTriggerRoles) && !node.closest(config.modelTriggerExclusions) && node.getClientRects().length > 0 &&
+        node.id !== config.composerPlusId && node.getAttribute(config.testIdAttribute) !== config.composerPlusId);
+    if (nodes.length > config.maxPickers) return unavailable(config.observationReasons.budget, pageReady);
+    const states = nodes.map(node => ({ node, picker: readers.readPickerSnapshot(node) || readers.readShellPickerSnapshot(node) })).filter(state => state.picker);
+    const reported = states.filter(state => state.node.matches(config.modelTriggers));
+    const identified = reported.length === 1 ? reported[0] : states.length === 1 ? states[0] : null;
+    if (!identified) return unavailable(states.length ? config.observationReasons.ambiguous : config.observationReasons.picker, pageReady);
+    const picker = identified.picker;
+    const selected = picker.choices.find(choice => choice.bucket === picker.currentBucket);
     return { conversationId, accountReady: true, selectedModel: selected?.id ?? null, selectedEffort: selected?.effort ?? null,
       models: picker.choices.slice(0, config.maxModels).map(choice => ({ id: choice.id, label: choice.label, effort: choice.effort, available: choice.available === true })),
-      requestIds: [...ids].slice(-config.maxRequests) };
-  } catch { return { ...empty, conversationId }; }
+      requestIds: [...ids].slice(-config.maxRequests), observationReason: null };
+  } catch { return unavailable(config.observationReasons.error, pageReady); }
 }

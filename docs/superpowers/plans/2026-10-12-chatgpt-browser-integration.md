@@ -17,6 +17,7 @@
 - Existing user edits remain untouched. Implement in an isolated checkout from remote `ankita`; copy only these approved planning documents into it.
 - Start with one active browser conversation. Concurrent workers, Goal helper providers and code-mode batching are outside the first shipment.
 - Ordinary browser chat uses the signed-in account. Account models, usage restrictions and connection permissions still apply. Never label it unlimited.
+- User clarification: first inherit the selected ChatGPT chat's current model. Optional model discovery must not block connection, native request attribution or ordinary delivery; explicit model changes still need evaluated choices. Retain the native MCP proof gate before broad desktop/action work.
 - Publish real MCP tools; never execute prose, fabricated function-call JSON or private ChatGPT API requests.
 - Share existing execution policies, prepare/recheck, workspace checks, cancellation and computer pointer ownership.
 - Named shared constants/config own protocol versions, routes, bounds, polling intervals, profile files and provider identifiers, with units/reasons. No copied inline values or account/model assumptions.
@@ -106,7 +107,7 @@ server.server.setRequestHandler('tools/call', async (request, context) => {
 - [ ] Create a unique file in an explicit temporary workspace and use the existing `McpClient` HTTP transport to connect to the new SDK-backed read-only surface. Call `read_file`, compare the result with local bytes, then close/drain both client and gateway. This is a real protocol/tool round trip, not a hosted ChatGPT proof. The account proof follows immediately after the companion can establish ownership in Task 2.
 - [ ] Commit this independently reviewable host/gateway change and its evidence; keep proof files/secrets out of Git.
 
-## Task 2: Attach to the existing browser and observe its real model choices
+## Task 2: Attach to the existing browser and prove native MCP on its current model
 
 **Files:** Create `services/chatgpt-bridge/main.mjs`, `config.mjs`, `server.mjs`, `src/integrations/chatgpt-browser/request-owners.mjs`, `desktop/chatgpt-companion/manifest.json`, `background.mjs`, `content.mjs`, adapter files under `desktop/chatgpt-companion/upstream/`, `vendor/chat-on-steroids/README.md`, `source.json`, `LICENSE`, `test/integrations/chatgpt-companion.test.mjs`, `test/integrations/chatgpt-model-discovery.test.mjs`.
 
@@ -123,7 +124,7 @@ assert.equal(launches, 0); // Test-only launch seam, never a browser-discovery s
 - [ ] Run the two new test files serially and capture the failure.
 - [ ] Port CoS DOM/model/completion readers from the pinned `extension/chatgpt-dom.js` and read-only Fiber evidence with a reviewed, focused adapter fork. Carry source hashes, patches and tests. Replace CoS-specific connector identity/overlay behavior deliberately; do not copy its whole background/content/bridge runtime or unrelated history capture.
 - [ ] Generate manifest and host protocol config from one source. Restrict observation to ChatGPT and the explicitly bound tab; keep debugger/cookies permissions out of ordinary conversation observation. The background worker owns secrets and validates sender.tab before forwarding; page scripts never receive them.
-- [ ] Start only the external companion process, pair it over loopback and require a fresh account/model observation before Ready. Reconnection preserves Disconnect intent. Do not use `/models` API metadata or infer GPT-6 access from product names.
+- [ ] Start only the external companion process, pair it over loopback and require fresh selected-page evidence before Ready in current-model mode. Exact native request attribution is independent of model-picker discovery. Explicit-model mode still requires evaluated selection evidence. Reconnection preserves Disconnect intent. Do not use `/models` API metadata or infer GPT-6 access from product names.
 - [ ] Repeat offline tests using actual page-adapter code, then load the companion in the already-open browser and verify the selected tab/conversation/model. Record that Chrome was not restarted, no additional profile was created and unrelated tab content was not retained.
 - [ ] Implement the exact single-binding request/conversation join using CoS `mcp/inbound.ts` and `session/correlation.ts`. Connect the Task 1 read-only surface through a supported ChatGPT connection and ask the bound conversation to read the unique temporary file. Compare native tool content with local bytes and retain request/turn provenance. If account/custom-MCP/tunnel access or current page compatibility prevents this proof, report the exact blocker before proceeding to Tasks 3–7; do not advertise action mode as ready.
 - [ ] Commit the scoped attach/model-discovery deliverable and provenance.

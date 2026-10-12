@@ -8,7 +8,7 @@ import { GATEWAY_TOKEN_BYTES } from '../../src/integrations/chatgpt-browser/prot
 import { ToolHost } from '../../src/core/tool-host.mjs';
 import { createToolGateway } from '../../src/integrations/chatgpt-browser/tool-gateway.mjs';
 import { MemoryToolReceipts } from '../../src/integrations/chatgpt-browser/tool-receipts.mjs';
-import { COMPANION_POLL_MS } from './config.mjs';
+import { COMPANION_POLL_MS, BRIDGE_READY_STATUS, MODEL_MODES } from './config.mjs';
 
 const PROOF_FLAG = '--proof'; // Explicit scratch-only attach check; no user workspace exposure.
 const PAIRING_DISPLAY_FLAG = '--print-pairing'; // Owner-requested one-time setup display; never emitted in diagnostic logs.
@@ -27,11 +27,11 @@ export async function startCompanionProof({ workspacePath, onObservation } = {})
     onEvent: event => {
       if (event.type === 'tool-result' && proofBytes && !event.result.isError && event.result.content.some(part => part.type === 'text' && part.text.split('\n')[0] === `1: ${proofBytes}`)) nativeReadMatched = true;
     } });
-  const bridge = await createCompanionBridge({ config: { workspacePath: workspace, threadId: randomUUID() },
+  const bridge = await createCompanionBridge({ config: { workspacePath: workspace, threadId: randomUUID(), modelMode: MODEL_MODES.current },
     // Ephemeral proof credentials have no disk record. Desktop persistence will inject SecureStore.
     secrets: { withSecret: async (_, callback) => callback(key) }, onObservation: observation => {
       gatewayWork = gatewayWork.then(async () => {
-        if (bridge.view().status !== 'ready' || gatewayLease === observation.binding.leaseId) return;
+        if (bridge.view().status !== BRIDGE_READY_STATUS || gatewayLease === observation.binding.leaseId) return;
         await gateway?.close();
         gatewayLease = observation.binding.leaseId;
         gateway = await createToolGateway({ leaseId: gatewayLease,
@@ -52,7 +52,7 @@ async function main() {
   if (!args.includes(PROOF_FLAG) && workspaceIndex < 0) throw new Error(`Choose ${PROOF_FLAG} or ${WORKSPACE_FLAG} with an explicit directory`);
   if (workspaceIndex >= 0 && !args[workspaceIndex + 1]) throw new Error('Workspace directory is missing');
   const proof = await startCompanionProof({ workspacePath: workspaceIndex < 0 ? undefined : args[workspaceIndex + 1],
-    onObservation: observation => console.log(JSON.stringify({ event: 'bound-model-observation', selectedModel: observation.selectedModel, models: observation.models.length })) });
+    onObservation: observation => console.log(JSON.stringify({ event: 'bound-model-observation', selectedModel: observation.selectedModel, models: observation.models.length, modelMode: observation.modelMode, observationReason: observation.observationReason })) });
   console.log(JSON.stringify({ status: proof.bridge.view().status, address: proof.bridge.address, proofFile: proof.proofFile, hostedNativeMcp: 'not-proven' }));
   if (args.includes(PAIRING_DISPLAY_FLAG)) console.log('ONE-TIME LOCAL PAIRING URL (keep private): ' + proof.pairingUrl);
   let displayedGateway = null, reportedNativeMatch = false;

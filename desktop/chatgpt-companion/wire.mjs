@@ -22,7 +22,37 @@ export const wire = Object.freeze({
   "readerGlobal": "AnkitaPageReaders",
   "maxTurns": 6,
   "maxPickers": 8,
-  "modelTriggers": "button[aria-haspopup=\"menu\"], [data-codex-intelligence-trigger], [data-composer-navigation-target=\"reasoning\"]",
+  "modelTriggers": "[data-codex-intelligence-trigger], [data-composer-navigation-target=\"reasoning\"]",
+  "formModelTriggers": "button[aria-haspopup=\"menu\"]",
+  "modelTriggerRoles": "button,[role=\"button\"]",
+  "modelTriggerExclusions": ".clf-stream,.clf-stage,.clf-composer,.clf-boot,[data-testid^=\"conversation-turn\"],[data-message-author-role],.markdown,[contenteditable],[hidden],[aria-hidden=\"true\"],[inert]",
+  "composerPlusId": "composer-plus-btn",
+  "composerForm": "form",
+  "testIdAttribute": "data-testid",
+  "observationReasons": {
+    "route": "route-unavailable",
+    "readers": "reader-unavailable",
+    "composer": "composer-unavailable",
+    "budget": "picker-budget-exceeded",
+    "picker": "model-picker-unavailable",
+    "ambiguous": "model-picker-ambiguous",
+    "error": "reader-error"
+  },
+  "observationMessages": {
+    "route-unavailable": "Connected · the selected conversation changed. Choose it again.",
+    "reader-unavailable": "Connected · the page reader is not available yet.",
+    "composer-unavailable": "Connected · the chat editor has not been detected yet.",
+    "picker-budget-exceeded": "Connected · too many model controls were found to identify the current model safely.",
+    "model-picker-unavailable": "Connected · the model controls could not be read. Open ChatGPT’s Think/model menu, then Observe this tab again.",
+    "model-picker-ambiguous": "Connected · the current model controls are ambiguous. Close extra model menus and Observe again.",
+    "reader-error": "Connected · the page reader could not inspect this conversation."
+  },
+  "modelModes": {
+    "current": "current",
+    "explicit": "explicit"
+  },
+  "readyStatus": "ready",
+  "currentModelMessage": "Connected · using the current model in your ChatGPT chat.",
   "turns": "section[data-testid^=\"conversation-turn\"], [data-app-shell-main-surface] [data-thread-find-target=\"conversation\"] [data-turn-key], [data-chatgpt-search-unit-key$=\":user\"]",
   "hidden": "[hidden],[aria-hidden=\"true\"],[inert]",
   "loopbackHost": "127.0.0.1",

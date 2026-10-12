@@ -12,8 +12,11 @@ a real native ChatGPT MCP read before those are built. Normal account limits app
    one-time local pairing URL into the companion popup. Keep that URL private; do not
    paste it into ChatGPT or diagnostic logs. It expires when the process stops.
 3. Choose an **existing ChatGPT conversation** in the popup and click **Observe this tab**.
-   The popup must show `ready` and an observed model. If it shows logged-out, observing
-   or model-unavailable, stop at that state; no account/model availability is assumed.
+   The first path inherits that chat's current model. The popup can show **Connected · using
+   the current model in your ChatGPT chat** even when the model name is unknown. The host
+   still requires fresh selected-page evidence and exact native request ownership. Choosing
+   a specific model later requires actual evaluated choices. A page-detection problem is
+   shown as such; it does not falsely declare the user logged out.
 4. The process then displays a read-only local MCP endpoint. Hosted ChatGPT cannot
    directly reach a loopback URL. A supported native connection and reviewed HTTPS/tunnel
    setup are still required; no tunnel is published automatically. Do not paste a
@@ -25,6 +28,16 @@ Only the selected tab is read; unrelated page text, cookies, API keys and privat
 are excluded. Page messages cannot request tools or change host workspace/thread context.
 Disconnect clears the binding and stops polling. Restart needs a new manual pairing;
 pairing material is not persisted as plaintext.
+
+## Connection troubleshooting
+
+- A blank new-chat page has no durable conversation ID. Open a saved ChatGPT conversation
+  in the same Chrome profile. The companion refreshes its list automatically; its empty
+  state explains this and disables Observe until a conversation is available.
+- Repeating Connect with the same pairing URL reuses the current browser identity and
+  conversation binding. It does not claim a second browser and trigger HTTP 409.
+- After updating/reloading the extension, restart the proof checker and pair with its new
+  private URL. Pairing is deliberately memory-only; an old URL/session is not recovery proof.
 
 The Windows computer-use skill prevents the agent from handling extension/security
 permission setup. The installation and any account connection permissions are a manual

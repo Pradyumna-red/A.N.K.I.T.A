@@ -59,7 +59,10 @@ async function action(message) {
   if (message.type === 'connect') {
     const url = new URL(message.url);
     if (url.protocol !== wire.localProtocol || url.hostname !== wire.loopbackHost || !url.port || url.username || url.password || url.pathname !== '/' || url.search || !url.hash.slice(1)) throw new Error('Use the local pairing URL printed by ANKITA');
-    const current = { address: url.origin, key: url.hash.slice(1), browserId: crypto.randomUUID() };
+    const existing = await session();
+    const address = url.origin, key = url.hash.slice(1);
+    // Repeating the owner's Connect reuses this session identity; it must not claim a second browser.
+    const current = existing?.address === address && existing?.key === key ? existing : { address, key, browserId: crypto.randomUUID() };
     await request(current, wire.routes.pair, { version: wire.version, extensionId: chrome.runtime.id, browserId: current.browserId });
     await chrome.storage.session.set({ [SESSION_KEY]: current });
     await tabs(current); void tick(); return { connected: true };

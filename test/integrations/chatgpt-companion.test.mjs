@@ -19,8 +19,8 @@ const config = { workspacePath: workspace, threadId: 'proof-thread' };
 const secrets = { withSecret: async (_, callback) => callback(secret) };
 const snapshot = { accountReady: true, models: [{ id: 'observed-model', label: 'Observed model', available: true }], selectedModel: 'observed-model', requestIds: ['native-owned'] };
 
-async function paired() {
-  const bridge = await createCompanionBridge({ config, secrets });
+async function paired(extraConfig = {}) {
+  const bridge = await createCompanionBridge({ config: { ...config, ...extraConfig }, secrets });
   await bridge.pair({ extensionId, version: 1, browserId });
   await bridge.reportTabs({ browserId, tabs: [{ id: 1, url: `https://chatgpt.com/c/${conversationId}`, title: 'Same title' }, { id: 2, url: `https://chatgpt.com/c/${otherConversation}`, title: 'Same title' }, { id: 3, url: 'https://unrelated.invalid/', title: 'Private unrelated tab' }] });
   return bridge;
@@ -64,6 +64,53 @@ test('incompatible pairing and explicit disconnect remain stopped on reconnect',
     await bridge.disconnect();
     await assert.rejects(bridge.pair({ extensionId, version: 1, browserId }), /disconnect/i);
     assert.equal(bridge.view().status, 'disconnected');
+  } finally { await bridge.close(); }
+});
+
+test('an unavailable page observation is reported without asserting the user is logged out or admitting tools', async () => {
+  const bridge = await paired();
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    const command = await bridge.poll();
+    assert.equal(await bridge.observe({ binding, nonce: command.nonce, snapshot: {
+      conversationId, accountReady: false, models: [], selectedModel: null, requestIds: [], observationReason: 'composer-unavailable',
+    } }), true);
+    assert.equal(bridge.view().status, 'page-unavailable');
+    assert.equal(bridge.view().observationReason, 'composer-unavailable');
+    await assert.rejects(bridge.resolveRequestOwner({ leaseId: binding.leaseId, requestId: 'unproven' }), /unavailable/i);
+  } finally { await bridge.close(); }
+});
+
+test('current-model mode needs fresh page and exact request ownership while leaving the model name unknown', async () => {
+  const bridge = await paired({ modelMode: 'current' });
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    const observe = async requestIds => {
+      const command = await bridge.poll();
+      return bridge.observe({ binding, nonce: command.nonce, snapshot: {
+        conversationId, accountReady: true, models: [], selectedModel: null, requestIds, observationReason: 'model-picker-unavailable',
+      } });
+    };
+    assert.equal(await observe(['historical']), true);
+    assert.equal(bridge.view().status, 'ready');
+    assert.equal(bridge.view().modelMode, 'current');
+    assert.equal(bridge.view().selectedModel, null);
+    assert.deepEqual(bridge.view().models, []);
+    assert.equal(await observe(['historical', 'new-current-request']), true);
+    assert.equal((await bridge.resolveRequestOwner({ leaseId: binding.leaseId, requestId: 'new-current-request' })).conversationId, conversationId);
+    await bridge.disconnect();
+    await assert.rejects(bridge.resolveRequestOwner({ leaseId: binding.leaseId, requestId: 'new-current-request' }), /unavailable/i);
+  } finally { await bridge.close(); }
+});
+
+test('an explicit model selection still refuses missing account model evidence', async () => {
+  const bridge = await paired({ modelMode: 'explicit' });
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    const command = await bridge.poll();
+    await bridge.observe({ binding, nonce: command.nonce, snapshot: { conversationId, accountReady: true, models: [], selectedModel: null, requestIds: [] } });
+    assert.equal(bridge.view().status, 'model-unavailable');
+    await assert.rejects(bridge.resolveRequestOwner({ leaseId: binding.leaseId, requestId: 'unproven' }), /unavailable/i);
   } finally { await bridge.close(); }
 });
 
@@ -113,4 +160,42 @@ test('extension reads exactly the selected tab and discards navigation during th
   } } };
   assert.equal(await observeBoundTab(chromeApi, binding), null);
   assert.deepEqual(calls, [2, 2, 2, 2]);
+});
+
+test('repeating Connect with the same pairing URL preserves the paired browser and conversation', async () => {
+  const bridge = await createCompanionBridge({ config, secrets });
+  const originalChrome = globalThis.chrome;
+  const storage = {}; let listener;
+  const runtime = { id: extensionId, getURL: file => `chrome-extension://${extensionId}/${file}`,
+    onMessage: { addListener: callback => { listener = callback; } } };
+  globalThis.chrome = { runtime, storage: { session: {
+    get: async key => ({ [key]: storage[key] }),
+    set: async values => { Object.assign(storage, values); },
+    remove: async key => { delete storage[key]; },
+  } }, tabs: {
+    query: async () => [{ id: 4, url: `https://chatgpt.com/c/${conversationId}`, title: 'Existing conversation' }],
+    get: async () => ({ id: 4, url: `https://chatgpt.com/c/${conversationId}` }),
+  }, scripting: { executeScript: async () => [] } };
+  const send = message => new Promise(resolve => {
+    assert.equal(listener(message, { id: extensionId, url: runtime.getURL('popup.html') }, resolve), true);
+  });
+  try {
+    await import(new URL(`../../desktop/chatgpt-companion/background.mjs?rpc-fixture=${crypto.randomUUID()}`, import.meta.url));
+    const url = `${bridge.address}/#${secret}`;
+    assert.equal((await send({ type: 'connect', url })).value?.connected, true);
+    const firstBrowser = (await bridge.listTabs())[0].browserId;
+    const binding = await bridge.bind({ ...config, browserId: firstBrowser, tabId: 4, conversationId });
+    const repeated = await send({ type: 'connect', url });
+    assert.equal(repeated.error, undefined, 'a repeated owner connection must not return HTTP 409');
+    assert.equal(repeated.value?.connected, true);
+    assert.equal((await bridge.listTabs())[0].browserId, firstBrowser);
+    assert.deepEqual(bridge.view().binding, binding);
+  } finally {
+    // Bind's awaited observation drains the worker before its global Chrome fixture is removed.
+    if (listener && Object.keys(storage).length) await send({ type: 'bind', tabId: 4 });
+    if (listener) await send({ type: 'disconnect' });
+    await bridge.close();
+    await new Promise(resolve => setImmediate(resolve));
+    if (originalChrome === undefined) delete globalThis.chrome; else globalThis.chrome = originalChrome;
+  }
 });

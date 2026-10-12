@@ -133,3 +133,49 @@ workflow remain later gates; this checkpoint is not a released desktop browser p
   aggregate budgets, attachments/Stop/recovery, desktop routing/packaging and final fresh
   review. The current bridge's model-only enqueue identifier is not a durable Send receipt
   and must be replaced at Task 3 before any delivery acknowledgment is exposed.
+
+## Live setup repairs and CoS source re-check
+
+The user reproduced HTTP 409 after repeating Connect and confirmed that Chrome was on a
+blank new-chat page. The service was reachable; the extension's new random browser ID on
+each Connect caused the ownership conflict. Same-URL reconnect now reuses its session ID
+and preserves the binding. An empty picker now explains that a saved conversation is needed
+and disables Observe until one appears. These two tests failed before correction.
+
+A subsequent screenshot showed a signed-in, selected saved conversation while the popup
+said `logged-out`. Actual bridge observations had no model choices. Missing picker evidence
+was wrongly treated as absence of the account, and the picker search included unrelated
+page menus. The focused CoS lookup now limits generic menus to the selected composer,
+deduplicates explicit native triggers and publishes only safe diagnostic codes. Three
+regressions failed before correction. The actual paired Chrome observation subsequently
+reported `model-picker-unavailable`; its composer was present. The user confirmed the
+corrected explanation in the popup. No further Windows input occurred after physical Escape
+stopped Computer Use; screenshot capture had also failed twice.
+
+The user then clarified that ordinary desktop-to-web messaging and the native MCP plugin
+are the goal. Latest upstream `9b6d104e958c3b130bf25a92f7b29baa1b422a25` was fetched into the
+read-only reference repository, preserving the original adapter checkout/hash pin.
+`extension/chatgpt-dom.js`'s `selectModelSettings` returns immediately when no model/effort
+is requested. CoS supports an optional built-in Electron browser and external Chrome;
+its Core MCP connector and authenticated control API are separate from model discovery.
+Current-model mode therefore leaves the browser selection unchanged and its unknown
+model name null. Explicit-model mode still requires evaluated selection. Native request
+provenance is read independently of the picker; exact binding/lease/nonce ownership and
+Disconnect refusal remain required. Three regressions failed before this correction.
+
+Latest affected suites passed **22/22**. The real Chromium popup fixture checks empty-list
+recovery and honest page/current-model explanations; this is not the user's Chrome profile.
+The final full serial `npm test` exited 0: **1239 tests, 1238 passed, 0 failed, 1 skipped**,
+515175 ms. The existing Windows/POSIX skip remains. `npm run desktop:build` exited 0 and
+`git diff --check` passed. Both local HTTP proof scripts passed again with exact temporary
+file bytes and disconnected-tool refusal; both still explicitly report `hostedChatGpt:false`.
+
+The user reports that CoS Core and its tunnel already exist. Read-only local inspection found
+CoS **2.1.34** installed, its selected browser `cos`, no running CoS/tunnel process, no control
+endpoint, and both control API switches disabled. No CoS settings, secrets, installation or
+browser profile were changed, and the app was not launched. Reusing its existing runtime
+would change tool authority from ANKITA's ToolHost to CoS's tools. The user delegated the
+choice and clarified the startup/EXE goal; the selected product route remains standalone
+ANKITA with bundled reusable CoS components, preserving ANKITA's tools and pointer.
+Latest current-model code has not yet been observed in the user's live browser; hosted native
+MCP, full desktop routing, packaging and final whole-branch review remain pending.

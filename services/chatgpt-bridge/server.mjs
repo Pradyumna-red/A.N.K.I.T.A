@@ -5,7 +5,8 @@ import { localhostHostValidation } from '@modelcontextprotocol/node';
 import { RequestOwners, sameBinding } from '../../src/integrations/chatgpt-browser/request-owners.mjs';
 import { JSON_CONTENT_TYPE, HTTP_STATUS, LOCAL_HTTP_PROTOCOL, BEARER_PREFIX } from '../../src/integrations/chatgpt-browser/protocol.mjs';
 import { COMPANION_VERSION, BRIDGE_HOST, BRIDGE_PORT, BRIDGE_MAX_BODY_BYTES, BRIDGE_SECRET_NAME, OBSERVATION_MAX_AGE_MS,
-  MAX_TABS, MAX_MODELS, MAX_REQUEST_IDS, MAX_ID_CHARS, ROUTES, EXTENSION_ID_PATTERN, conversationFromUrl } from './config.mjs';
+  MAX_TABS, MAX_MODELS, MAX_REQUEST_IDS, MAX_ID_CHARS, ROUTES, EXTENSION_ID_PATTERN, PAGE_UNAVAILABLE_STATUS, BRIDGE_READY_STATUS,
+  MODEL_MODES, OBSERVATION_REASONS, conversationFromUrl } from './config.mjs';
 
 const POST = 'POST'; const GET = 'GET'; const EXTENSION_ORIGIN_PREFIX = 'chrome-extension://';
 const AUTH_PREFIX = BEARER_PREFIX; const NO_CACHE = 'no-store';
@@ -23,6 +24,7 @@ async function body(req) {
 /** External browser transport only. Host context/secret admission never comes from page messages. */
 export async function createCompanionBridge({ config, secrets, store, onObservation } = {}) {
   if (!config?.workspacePath || !config?.threadId || !secrets?.withSecret) throw new TypeError('Bridge requires explicit workspace, thread and protected secret provider');
+  const modelMode = config.modelMode ?? MODEL_MODES.explicit;
   const workspacePath = fs.realpathSync(config.workspacePath);
   if (!fs.statSync(workspacePath).isDirectory()) throw new Error('Proof workspace is not a directory');
   const owners = new RequestOwners(); const validateHost = localhostHostValidation();
@@ -35,9 +37,9 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
     const matches = observation?.models?.filter(model => model.id === observation.selectedModel && model.available &&
       (!observation.selectedEffort || model.effort === observation.selectedEffort)) ?? [];
     const selected = matches.length === 1 ? matches[0] : null;
-    return { status: disconnected || closing ? 'disconnected' : !pairing ? 'pairing-required' : !binding ? 'select-tab' : !fresh ? 'observing' : !accountReady ? 'logged-out' : !selected ? 'model-unavailable' : 'ready',
+    return { status: disconnected || closing ? 'disconnected' : !pairing ? 'pairing-required' : !binding ? 'select-tab' : !fresh ? 'observing' : !accountReady ? PAGE_UNAVAILABLE_STATUS : !selected && modelMode !== MODEL_MODES.current ? 'model-unavailable' : BRIDGE_READY_STATUS,
       binding: binding && { ...binding }, accountReady: Boolean(accountReady), selectedModel: fresh ? observation?.selectedModel ?? null : null,
-      models: fresh ? observation?.models ?? [] : [], observedAt };
+      models: fresh ? observation?.models ?? [] : [], modelMode, observationReason: fresh ? observation?.observationReason ?? null : null, observedAt };
   };
   const bridge = {
     address: null, view,
@@ -83,13 +85,14 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
       if (models.some(model => !model.id || !model.label)) return false;
       if (!observation) owners.prime(value.requestIds); else owners.observe(binding, value.requestIds);
       observation = { accountReady: value.accountReady === true, selectedModel: opaque(value.selectedModel) ? value.selectedModel : null,
-        selectedEffort: opaque(value.selectedEffort) ? value.selectedEffort : null, models };
+        selectedEffort: opaque(value.selectedEffort) ? value.selectedEffort : null, models,
+        observationReason: Object.values(OBSERVATION_REASONS).includes(value.observationReason) ? value.observationReason : null };
       observedAt = Date.now();
-      onObservation?.({ binding: { ...binding }, ...observation, observedAt });
+      onObservation?.({ binding: { ...binding }, ...observation, modelMode, observedAt });
       return true;
     },
     async resolveRequestOwner(input) {
-      if (view().status !== 'ready') throw new Error('Request owner browser binding is unavailable');
+      if (view().status !== BRIDGE_READY_STATUS) throw new Error('Request owner browser binding is unavailable');
       return owners.resolve(input);
     },
     async disconnect() {

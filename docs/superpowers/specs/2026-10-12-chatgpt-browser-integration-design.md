@@ -1,6 +1,6 @@
 # ChatGPT browser integration for ANKITA
 
-Status: proposed design for review; research and planning only.
+Status: approved, implementation in progress; current-model path clarified by the user on 2026-10-12.
 Date: 2026-10-12, Asia/Calcutta.
 
 ## User intent and confirmed choice
@@ -16,11 +16,18 @@ Success is an observed round trip: send from ANKITA, receive the reply in ANKITA
 an existing ANKITA tool through ChatGPT's native MCP connection, read its real result,
 and stop without replaying work or closing the person's browser/apps.
 
+The user later clarified the startup/EXE requirement and delegated the implementation
+choice. ANKITA ships as one standalone installation with reusable MIT CoS browser/MCP
+components bundled behind its own interface. A separately installed CoS app/Core is useful
+for development comparison, not required for customers. Keep ANKITA's tool policy and
+pointer ownership; do not introduce a second competing execution runtime.
+
 ## Research snapshot
 
 - Source: https://github.com/totec448-spec/chat-on-steroids
 - Pinned revision: `34f4b73cc242b63acd4be5ba4e4fb74a5cdb99e5`.
 - Package reports `2.1.34`, MIT. This is a research pin, not a production version default.
+- A subsequent source audit fetched `9b6d104e958c3b130bf25a92f7b29baa1b422a25` without changing the pinned adapter checkout. CoS's message-selection helper returns immediately when no model/effort is requested, and its built-in browser is optional. Current-model messaging must not wait for model-catalog discovery.
 - Source-only sparse checkout: `C:/Users/anime/.codex/visualizations/2026/10/10/01a12696-6960-7472-bff9-debac1d47dae/references/chat-on-steroids-source`.
 - ANKITA committed baseline: `a31c8829e3c8eda090f143d93901a3a4b3c6c701`.
   Existing uncommitted user edits are outside this proposal and must be preserved.
@@ -36,7 +43,7 @@ HEAD matches the research pin. No upstream install script, binary or app was exe
 | Composer and completion evidence | `extension/chatgpt-dom.js`, `extension/fiber.js`, `extension/content.js` | Reuse tested page adapters and receipt rules; silence or interim prose cannot mean completion. |
 | Extension/app bridge | `extension/background.js`, `src/main/bridge.ts`, `src/shared/browser-bridge.ts` | Separate authenticated loopback observation/command traffic from cloud-facing MCP tool traffic. |
 | Native ChatGPT tools | `src/main/mcp/server.ts`, `tools.ts`, `tools-plugins.ts`, `inbound.ts` | ChatGPT calls MCP directly; this is not an OpenAI-compatible model endpoint. |
-| Account model discovery | `src/main/chat-models.ts` | Populate models from fresh browser observations and confirm selection before Send. |
+| Account model discovery | `src/main/chat-models.ts`, `extension/chatgpt-dom.js` | Optional for choosing a model explicitly. Ordinary current-model messaging leaves ChatGPT's selection unchanged; an unknown model name stays unknown. |
 | Delivery and durable recovery | `src/main/session/input.ts`, `correlation.ts`, `continuation.ts`, `finish.ts` | Preserve command identity, source conversation and uncertain outcomes across reloads. |
 | Local tool reachability | `src/main/tunnel/index.ts` | CoS supports OpenAI Secure MCP Tunnel and a public HTTPS tunnel alternative; their credentials/exposure differ. |
 | Goal helper | `src/main/goal.ts`, `src/shared/types.ts` | The shipped Goal helper defaults to OpenRouter and also supports custom providers. Porting it wholesale would add another model-provider dependency. |
@@ -116,6 +123,7 @@ connected services. Do not expose settings mutation or unrestricted profile acce
   launch, cookie transfer, login automation or global debugging port is part of this mode.
 - An installed companion is a prerequisite. Account/workspace custom MCP availability
   and a real cloud-to-local tool round trip are separate prerequisites for action mode.
+- The first path inherits the selected chat's current model. A fresh editor/conversation binding and exact native request attribution authorize the read-only proof independently of model-picker visibility. Explicit model changes still require fresh evaluated choices; no model ID or quota is inferred from an account/product label.
 - MVP supports one active browser conversation. Multi-tab teammates remain on API
   providers until isolation is proven; concurrent ChatGPT workers are a later phase.
 - The companion service binds loopback, checks paired extension identity, versions,
@@ -152,8 +160,9 @@ connected services. Do not expose settings mutation or unrestricted profile acce
 
 1. Publish a read-only ANKITA MCP surface and prove its protocol using a real local MCP
    client and a unique temporary file. Preserve existing API tool-policy behavior.
-2. Bind the extension to the existing browser, discover available models and observe a
-   selected chat. Then prove ChatGPT reads that temporary file through native MCP with
+2. Bind the extension to the existing browser and observe the selected chat using its
+   current model; model discovery is optional unless a specific model is requested.
+   Then prove ChatGPT reads that temporary file through native MCP with
    exact source attribution. If the account cannot use a native MCP connection, action
    mode stops here visibly, before desktop runtime changes. Reuse the DOM adapter and
    completion evidence; test offline fixtures alongside that hosted-model proof.
