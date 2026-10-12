@@ -177,8 +177,10 @@ browser profile were changed, and the app was not launched. Reusing its existing
 would change tool authority from ANKITA's ToolHost to CoS's tools. The user delegated the
 choice and clarified the startup/EXE goal; the selected product route remains standalone
 ANKITA with bundled reusable CoS components, preserving ANKITA's tools and pointer.
-Latest current-model code has not yet been observed in the user's live browser; hosted native
-MCP, full desktop routing, packaging and final whole-branch review remain pending.
+The user's live companion now reports **Connected · using the current model in your
+ChatGPT chat**, with `modelMode:current`, an unknown model name and the optional picker
+unavailable. Hosted native MCP, full desktop routing, packaging and final whole-branch
+review remain pending.
 
 The native proof runner was prepared separately in ignored `.commandcode`. It verifies the
 installed tunnel helper against the official OpenAI tunnel-client v0.0.16 Windows archive:
@@ -197,3 +199,96 @@ binding, the runner will publish only the scratch proof surface, validate native
 initialization and `read_file` discovery without executing a tool, then display the
 private connection URL in the owner terminal. The user's existing CoS tunnel is untouched.
 Actual hosted request attribution/file bytes remain the proof gate.
+
+## Public proof startup repair
+
+The user's actual bound browser started the scratch tunnel, but the first public probe
+failed with `TypeError`. Live diagnosis found `/ready` HTTP 200 and one tunnel connection,
+while Windows name lookup failed with `ENOTFOUND` (direct DNS queries also returned
+`ECONNREFUSED`). Two HTTPS DNS resolvers returned DNS status 0 with two IPv4 answers.
+Connecting to the allocated hostname using those answers, with its original TLS hostname
+and certificate verification intact, returned HTTP 401 for an invalid endpoint capability.
+This proves reachability and rejection, not hosted tool execution.
+
+The optional `services/chatgpt-bridge/public-probe.mjs` fallback is scoped to the explicit
+public proof origin and read-only initialization/tool discovery. It never replays
+`tools/call`, changes Windows DNS, disables TLS or retries authorization/admission failures.
+Resolver input contains only the public hostname; no endpoint path or pairing secret is
+sent. DNS and discovery responses are bounded and cancellation is retained.
+
+A transport-only live fixture then reproduced a second startup condition: a new hostname
+had no DNS answers initially. Six failed probes were followed by successful MCP discovery
+on attempt 7 without another tunnel or browser send. A bounded readiness check now waits
+for public DNS/proxy readiness; its next live run returned HTTP 530 on attempt 1 and then
+`toolNames:[read_file],attempts:2,protocol:2025-11-25,success:true,executions:0`.
+It explicitly reports `hostedChatGpt:false`. Eight regressions were observed RED in two
+stages, then passed GREEN. The affected companion/popup/gateway suites passed **30/30**;
+the desktop build exited 0. That full serial suite subsequently exited 0: **1247 tests,
+1246 passed, 0 failed, 1 existing Windows/POSIX skip**, 590165 ms.
+
+The user also supplied CoS setup screenshots showing its selected built-in browser,
+OpenAI Secure MCP Tunnel flow, masked stored key and connected tunnel transport. They do
+not prove a completed native tool call or ANKITA ownership. The original standalone
+design already prefers Secure MCP Tunnel for the product; this temporary quick-tunnel
+proof neither takes over that CoS connector nor copies its stored credentials.
+
+The user's actual re-paired checker then produced the same successful path:
+`public-mcp-startup-wait` with HTTP 530 on attempt 1, followed by
+`public-read-only-mcp-ready`, `tools:[read_file]`, `attempts:2`,
+`publicTransportVerified:true`, `hostedNativeMcp:not-proven`. Safe local diagnostics
+confirm that output. The private proof URL is shown only in the owner terminal and
+is not recorded here. The public Server URL app setup was rejected by the account UI.
+That rejection does not establish that all public Server URL setups are unsupported.
+
+## Secure native tunnel and request attribution repair
+
+The proof moved to the supported OpenAI Secure MCP Tunnel flow shown in CoS. The official
+`tunnel-client` executable matched publisher archive member SHA-256
+`4226bb74a72388147882881f29f79801b95e285d731a138071812e3aa6766571` and its executed version
+was `0.0.16+5f99daabd4aa4a77049e6d81d54a0d8c18335397`. This is a development helper only;
+no product binary or dependency was added. CoS's stored credentials/tunnel were untouched.
+
+The integrated runner owns pairing, the temporary read-only workspace and its local MCP
+endpoint. It prompts for only the dedicated tunnel ID and hidden restricted key; the user
+cannot accidentally substitute a pairing URL as the MCP endpoint. Private input is piped
+to the owner process, never placed in argv, diagnostic files or source. Input validation
+regressions passed **2/2**; its actual unpaired bridge returned HTTP 409 and started no
+native process. The user then paired successfully; local discovery exposed only `read_file`,
+and safe health diagnostics reported `localReady:true,openAiPollSeen:true`.
+
+The installed ANKITA Proof app reached `read_file`, but the user's first actual call failed
+with **FORBIDDEN: Request owner is unavailable**. The user confirmed the exact conversation
+selected in the companion. This proves native request transport, not a successful tool
+execution. The focused adapter had omitted CoS `extension/usage.js`: React request IDs can
+arrive tens of seconds after the live response stream, outside the bounded ownership wait.
+Its `readOrigin` explicitly joins a conversation handoff to a later
+`input_message.metadata.request_id` within the same HTTP response. The focused port now
+captures that evidence, plus native WebSocket handoff IDs, independently of the model picker.
+
+No private API request, credential/header read, prompt/analysis recording or page message
+authority was added. Only the bound page is injected. Scope is fenced by lease, epoch,
+tab and exact route before publishing metadata; historical DOM IDs cannot crowd out fresh
+stream IDs. Contradictory responses, unknown delta formats/channels, wrong socket chains,
+foreign origins, navigation and stale bindings abstain. Safe diagnostics contain source
+counts/readiness only. The unchanged exact ownership gate remains mandatory.
+
+Seven new cases first failed for the missing observer, then passed. Latest affected suites
+passed **39/39**. An actual isolated Chromium page made an HTTP streaming request; its
+React request count stayed zero while the stream supplied one exact ID. A real MCP call
+arrived before observation, waited for that join, and read the unique scratch bytes:
+`actualIsolatedChromium:true,realHttpStream:true,reactRequestIds:0,streamRequestIds:1,`
+`exactJoinReadMatched:true,originalResponsePreserved:true,disconnectedCallRefused:true,`
+`elapsedMs:204,hostedChatGpt:false`. The fixture's initial disconnected assertion incorrectly
+expected an error result; the real client rejects HTTP 403. That assertion was corrected
+without changing production admission. Ignored trace: `.commandcode/verify-request-stream-live.mjs`.
+
+The desktop build exited 0; the new full serial suite is still running. The user reloaded and
+paired the new owner runner, reused the installed native app/tunnel, and sent the proof
+request in the selected saved conversation. The safe local trace confirms
+`requestEvidence:{observerReady:true,streamIds:1,domIds:0}` followed by
+`native-request-ownership:{exactJoin:true,elapsedMs:0}` and
+`hostedNativeMcp:attributed-file-bytes-matched`. The user returned the unique scratch marker.
+**Task 2's real hosted native read gate is now passed.** It uses the account's existing
+current model without an observed catalog or an invented model name. Existing
+WebSockets opened before attachment are not retroactively observable; additional handoff/recovery,
+desktop Send/Stop/attachments/recovery, packaging and final branch review remain uncovered.

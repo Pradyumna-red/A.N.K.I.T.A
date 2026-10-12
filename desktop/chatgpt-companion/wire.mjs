@@ -20,6 +20,8 @@ export const wire = Object.freeze({
   "maxIdChars": 200,
   "conversationPattern": "(?:^|\\/)c\\/([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})(?:\\/|$)",
   "readerGlobal": "AnkitaPageReaders",
+  "originsGlobal": "AnkitaRequestOrigins",
+  "observationMaxAgeMs": 15000,
   "maxTurns": 6,
   "maxPickers": 8,
   "modelTriggers": "[data-codex-intelligence-trigger], [data-composer-navigation-target=\"reasoning\"]",

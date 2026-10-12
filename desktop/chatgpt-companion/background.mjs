@@ -3,6 +3,7 @@ import { readSelectedPage } from './content.mjs';
 
 const POPUP_FILE = 'popup.html';
 const READERS_FILE = 'upstream/readers.js';
+const ORIGINS_FILE = 'upstream/request-origins.js'; // Passive native request identity observer, injected only in the bound tab.
 const MAIN_WORLD = 'MAIN';
 const AUTH_PREFIX = wire.bearerPrefix;
 const JSON_TYPE = wire.jsonContentType;
@@ -13,8 +14,9 @@ const conversation = url => { try { const parsed = new URL(url); return parsed.o
 export async function observeBoundTab(chromeApi, binding) {
   const before = await chromeApi.tabs.get(binding.tabId);
   if (conversation(before.url) !== binding.conversationId) return null;
-  await chromeApi.scripting.executeScript({ target: { tabId: binding.tabId }, world: MAIN_WORLD, files: [READERS_FILE] });
-  const readings = await chromeApi.scripting.executeScript({ target: { tabId: binding.tabId }, world: MAIN_WORLD, func: readSelectedPage, args: [binding.conversationId, wire] });
+  await chromeApi.scripting.executeScript({ target: { tabId: binding.tabId }, world: MAIN_WORLD, files: [READERS_FILE, ORIGINS_FILE] });
+  const { leaseId, epoch, tabId, conversationId } = binding; // Page receives opaque scope only; workspace/thread ownership stays in the host.
+  const readings = await chromeApi.scripting.executeScript({ target: { tabId: binding.tabId }, world: MAIN_WORLD, func: readSelectedPage, args: [binding.conversationId, wire, { leaseId, epoch, tabId, conversationId }] });
   const after = await chromeApi.tabs.get(binding.tabId);
   if (conversation(after.url) !== binding.conversationId || readings.length !== 1) return null;
   return readings[0].result;

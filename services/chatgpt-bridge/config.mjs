@@ -49,6 +49,7 @@ export const SESSION_STORAGE_KEY = 'ankitaCompanionSession'; // Extension memory
 export const EXTENSION_ID_PATTERN = /^[a-p]{32}$/; // Chrome's generated extension ID format.
 export const CONVERSATION_PATTERN = /(?:^|\/)c\/([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})(?:\/|$)/i; // Durable ChatGPT conversation route, including projects/custom GPTs.
 export const READER_GLOBAL = 'AnkitaPageReaders';
+export const ORIGINS_GLOBAL = 'AnkitaRequestOrigins'; // Passive response identity namespace; no page message authority.
 
 export function conversationFromUrl(value) {
   try { const url = new URL(value); return url.origin === CHATGPT_ORIGIN ? url.pathname.match(CONVERSATION_PATTERN)?.[1] ?? null : null; }
@@ -57,6 +58,7 @@ export function conversationFromUrl(value) {
 export const browserWire = Object.freeze({ version: COMPANION_VERSION, pollMs: COMPANION_POLL_MS, chatgptMatch: CHATGPT_MATCH,
   chatgptOrigin: CHATGPT_ORIGIN, routes: ROUTES, storageKey: SESSION_STORAGE_KEY, maxTabs: MAX_TABS, maxRequests: MAX_REQUEST_IDS,
   maxModels: MAX_MODELS, maxIdChars: MAX_ID_CHARS, conversationPattern: CONVERSATION_PATTERN.source, readerGlobal: READER_GLOBAL,
+  originsGlobal: ORIGINS_GLOBAL, observationMaxAgeMs: OBSERVATION_MAX_AGE_MS,
   maxTurns: MAX_TURN_SECTIONS, maxPickers: MAX_PICKER_CANDIDATES, modelTriggers: MODEL_TRIGGER_SELECTORS, formModelTriggers: FORM_MODEL_TRIGGER_SELECTOR,
   modelTriggerRoles: MODEL_TRIGGER_ROLES, modelTriggerExclusions: MODEL_TRIGGER_EXCLUSIONS, composerPlusId: COMPOSER_PLUS_ID,
   composerForm: COMPOSER_FORM_SELECTOR, testIdAttribute: DOM_TEST_ID_ATTRIBUTE,

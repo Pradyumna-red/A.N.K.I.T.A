@@ -86,6 +86,10 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
       if (!observation) owners.prime(value.requestIds); else owners.observe(binding, value.requestIds);
       observation = { accountReady: value.accountReady === true, selectedModel: opaque(value.selectedModel) ? value.selectedModel : null,
         selectedEffort: opaque(value.selectedEffort) ? value.selectedEffort : null, models,
+        requestIdCount: value.requestIds.length,
+        requestEvidence: { observerReady: value.requestEvidence?.observerReady === true,
+          streamIds: Number.isSafeInteger(value.requestEvidence?.streamIds) && value.requestEvidence.streamIds >= 0 && value.requestEvidence.streamIds <= MAX_REQUEST_IDS ? value.requestEvidence.streamIds : 0,
+          domIds: Number.isSafeInteger(value.requestEvidence?.domIds) && value.requestEvidence.domIds >= 0 && value.requestEvidence.domIds <= MAX_REQUEST_IDS ? value.requestEvidence.domIds : 0 },
         observationReason: Object.values(OBSERVATION_REASONS).includes(value.observationReason) ? value.observationReason : null };
       observedAt = Date.now();
       onObservation?.({ binding: { ...binding }, ...observation, modelMode, observedAt });

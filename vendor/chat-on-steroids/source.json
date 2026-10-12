@@ -27,6 +27,17 @@
         "shellProExecutionModel",
         "shellLaneTransportEffort"
       ]
+    },
+    {
+      "file": "extension/usage.js",
+      "sha256": "b962735665d81f31afb352bd202d056aad395870a97721390d331a34b06f5c88",
+      "functions": [
+        "readOrigin",
+        "inspectRequestOrigins",
+        "inspectSocketMessage",
+        "installSocketObserver",
+        "installFetchObserver"
+      ]
     }
   ]
 }

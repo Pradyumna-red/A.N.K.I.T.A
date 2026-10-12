@@ -162,6 +162,19 @@ test('extension reads exactly the selected tab and discards navigation during th
   assert.deepEqual(calls, [2, 2, 2, 2]);
 });
 
+test('the bound page receives only opaque ownership scope, never host workspace or thread context', async () => {
+  const binding = { leaseId: 'current-lease', epoch: 'current-epoch', tabId: 1, conversationId, workspacePath: workspace, threadId: 'private-host-thread' };
+  let injected;
+  const chromeApi = { tabs: { get: async () => ({ url: `https://chatgpt.com/c/${conversationId}` }) }, scripting: { executeScript: async request => {
+    if (request.func) { injected = request.args; return [{ result: { conversationId } }]; }
+    assert.deepEqual(request.files, ['upstream/readers.js', 'upstream/request-origins.js']); return [];
+  } } };
+  await observeBoundTab(chromeApi, binding);
+  assert.deepEqual(injected[2], { leaseId: binding.leaseId, epoch: binding.epoch, tabId: binding.tabId, conversationId });
+  assert.equal(JSON.stringify(injected).includes(workspace), false);
+  assert.equal(JSON.stringify(injected).includes(binding.threadId), false);
+});
+
 test('repeating Connect with the same pairing URL preserves the paired browser and conversation', async () => {
   const bridge = await createCompanionBridge({ config, secrets });
   const originalChrome = globalThis.chrome;

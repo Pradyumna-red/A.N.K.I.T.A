@@ -31,6 +31,10 @@ Installed CoS is **2.1.34**, configured for its **cos** built-in browser. The lo
 API and its action switch are disabled, there is no control endpoint, and no CoS/tunnel
 process was running during inspection. No settings, secret or browser profile was changed.
 Saved Core/tunnel setup is user-reported; its current live connectivity is not yet checked.
+Later user-provided setup screenshots show a connected CoS tunnel and a masked stored key,
+using the OpenAI Secure MCP Tunnel setup. This supersedes the earlier no-running-process
+snapshot as user-supplied context; it is not an ANKITA native tool-call proof. The screenshots
+also show a pending CoS update, not evidence that the installed version was updated.
 
 ## Two valid routes
 
@@ -56,3 +60,15 @@ setup is a development reference, not a runtime dependency. Reuse complete compo
 their contracts fit, preserving licenses and removing unused CoS-specific owners instead
 of maintaining two competing runtimes. Native account connection permissions remain a
 separate requirement. No CoS control API adapter/settings change is part of this decision.
+ANKITA's design prefers the supported Secure MCP Tunnel setup shown in these screenshots.
+The temporary public HTTPS proof validated ANKITA's gateway discovery but account setup
+rejected its settings. The active proof now uses ANKITA's separate Secure MCP Tunnel and
+installed native MCP app. Transport polling succeeds; its first actual `read_file` reached
+ANKITA but exact request ownership remained unavailable. The focused fork now includes
+CoS's bounded response-stream request identity reader from `extension/usage.js`, with its
+source hash recorded. This reuses metadata parsing without CoS recording/quota/app owners,
+new private API requests or a CoS runtime dependency. The subsequent actual hosted request
+joined one stream ID with zero React IDs, executed `read_file`, and matched the unique local
+proof bytes. Safe trace: `native-request-ownership exactJoin:true,elapsedMs:0`, then
+`hostedNativeMcp:attributed-file-bytes-matched`. The native feasibility gate has passed;
+desktop delivery, permitted actions, Stop and packaged workflow remain separate work.
