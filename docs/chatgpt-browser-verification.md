@@ -179,3 +179,21 @@ choice and clarified the startup/EXE goal; the selected product route remains st
 ANKITA with bundled reusable CoS components, preserving ANKITA's tools and pointer.
 Latest current-model code has not yet been observed in the user's live browser; hosted native
 MCP, full desktop routing, packaging and final whole-branch review remain pending.
+
+The native proof runner was prepared separately in ignored `.commandcode`. It verifies the
+installed tunnel helper against the official OpenAI tunnel-client v0.0.16 Windows archive:
+archive SHA-256 `edef7241b0c647fcb30f1a80ff376b6b25c51927960f257a3f01e21b17c2aba6`,
+helper SHA-256 `cd0bc49aec24d0d62a37b6e842dad46000f7b401f6167b4cbace4e170819c9a2`.
+The audit exited 0 with `installedMatchesPublisher:true`; the helper's executed version
+check returned `cloudflared version 2026.8.2`. No dependency or binary was added to the
+product. Publisher identity does not replace the unavailable Sonatype scan.
+
+The previous owner terminal had ended. Process inspection returned
+`ownerTerminalAlive:false,nodeProcesses:[],listeners:[]`; no process was terminated.
+The fresh owner terminal and its Node child are running, with an actual loopback HTTP
+check returning `serviceReachable:true,unpairedStatus:401`. Its diagnostic log currently
+reports `pairing-required`, so no public tunnel has started. After a fresh companion
+binding, the runner will publish only the scratch proof surface, validate native MCP
+initialization and `read_file` discovery without executing a tool, then display the
+private connection URL in the owner terminal. The user's existing CoS tunnel is untouched.
+Actual hosted request attribution/file bytes remain the proof gate.
