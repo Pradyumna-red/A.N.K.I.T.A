@@ -5,10 +5,13 @@ export function acceptedReceipt(binding, receipt) {
   if (!receipt || receipt.conversationId !== binding.conversationId || RECEIPT_FIELDS.some(key => !opaque(receipt[key]))) return null;
   return Object.fromEntries(RECEIPT_FIELDS.map(key => [key, receipt[key]]));
 }
-export function completedReceipt(binding, receipt, answer) {
+export function publicReply(binding, receipt, answer) {
   if (!acceptedReceipt(binding, answer) || !receipt || RECEIPT_FIELDS.some(key => answer[key] !== receipt[key]) ||
       !opaque(answer.assistantMessageId) || answer.role !== 'assistant' || answer.channel !== 'final' ||
-      answer.end_turn !== true || answer.status !== 'finished_successfully' || typeof answer.text !== 'string' ||
+      typeof answer.text !== 'string' ||
       !answer.text.trim() || answer.text.length > MAX_FINAL_TEXT_CHARS) return null;
   return { ...acceptedReceipt(binding, answer), assistantMessageId: answer.assistantMessageId, text: answer.text };
+}
+export function completedReceipt(binding, receipt, answer) {
+  return answer?.end_turn === true && answer.status === 'finished_successfully' ? publicReply(binding, receipt, answer) : null;
 }

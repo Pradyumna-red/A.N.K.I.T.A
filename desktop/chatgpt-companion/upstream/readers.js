@@ -110,16 +110,41 @@ var AnkitaPageReaders = (() => {
     return null;
   }
 
-  function turnMessagesOf(fiber) {
+  function turnMessagesOf(fiber, maxChars) {
     let at = fiber;
     for (let up = 0; at && up < MAX_CLIMB; up++, at = at.return) {
       const props = at.memoizedProps;
       if (!props || typeof props !== 'object') continue;
       const turn = props.turn;
       if (turn && typeof turn === 'object' && Array.isArray(turn.messages)) return turn.messages;
+      if (turn && typeof turn === 'object' && Array.isArray(turn.items)) return messagesFromTurnView(turn, maxChars);
       if (Array.isArray(props.allMessages)) return props.allMessages;
     }
     return null;
+  }
+
+  // The native search-unit renderer exposes props.turn.items independently of
+  // the exchange shell's props.entry.turn.items. Project only authored public
+  // rows; the delivery caller applies its configured text/body bounds.
+  function messagesFromTurnView(turn, maxChars) {
+    if (turn.items.length > MAX_SHELL_ITEMS) return [];
+    const messages = [], seen = new Set();
+    for (const item of turn.items) {
+      const user = item?.type === 'user-message';
+      if (!user && !(item?.type === 'assistant-message' && item.phase === 'final_answer')) continue;
+      const id = str(item.messageId) || str(user ? item.serverMessageId : item.latestMessageId);
+      if (!id) continue;
+      if (seen.has(id) || (user && item.messageId && item.serverMessageId && item.messageId !== item.serverMessageId) ||
+          (!user && item.messageId && item.latestMessageId && item.messageId !== item.latestMessageId)) return [];
+      seen.add(id);
+      const text = user ? item.message : shellItemText(item, maxChars);
+      const completed = !user && item.completed === true && turn.status === 'complete';
+      messages.push({ id, author: { role: user ? 'user' : 'assistant' },
+        content: { content_type: 'text', parts: [typeof text === 'string' ? text : ''] },
+        channel: user ? null : 'final', end_turn: completed,
+        status: completed ? 'finished_successfully' : 'in_progress', metadata: {} });
+    }
+    return messages;
   }
 
   function unescapeFallbackMarkdown(markdown) {
@@ -149,10 +174,10 @@ var AnkitaPageReaders = (() => {
   function shellItemText(item, maxChars) {
     const content = typeof item?.content === 'string' ? item.content : '';
     if (!ONLY_CONTENT_REFERENCES.test(content)) return content;
-    const id = str(item.messageId);
+    const id = str(item.messageId) || str(item.latestMessageId);
     const own = (Array.isArray(item.contentReferences) ? item.contentReferences : []).slice(0, MAX_SHELL_ITEMS).filter(reference =>
       reference?.type === 'dil' && id && reference.source_message_id === id && typeof reference.model_dil_v2?.fallbackMarkdown === 'string' && reference.model_dil_v2.fallbackMarkdown.trim());
-    return own.length === 1 && own[0].model_dil_v2.fallbackMarkdown.length <= maxChars ? unescapeFallbackMarkdown(own[0].model_dil_v2.fallbackMarkdown) : content;
+    return own.length === 1 && own[0].model_dil_v2.fallbackMarkdown.length <= maxChars ? unescapeFallbackMarkdown(own[0].model_dil_v2.fallbackMarkdown) : '';
   }
   function shellTurnMessages(fiber, turnId, maxChars) {
     let entry = null;

@@ -44,6 +44,8 @@ import { projectContext, projectSummary, projectWorkspace } from './projects.mjs
 import { changedFiles, fileDiff, recentArtifacts, jobList, stopAgentJob, captureToolFiles, completedFileDiffs } from './workspace.mjs';
 import { DesktopScheduler } from './scheduler.mjs';
 import { JOB_HISTORY_KEEP } from '../../src/automation/job-policy.mjs';
+import { DesktopChatGptBrowser } from './chatgpt-browser.mjs';
+import { CHATGPT_BROWSER_PROVIDER, CHATGPT_BROWSER_LABEL, CHATGPT_WORKSPACE_DIRECTORY } from '../shared/chatgpt-browser.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const LOG_DIRECTORY = 'logs'; // Text diagnostics only; native binary dumps are not collected.
@@ -259,6 +261,7 @@ export class DesktopEngine {
     config = null,
     bootstrap = createSession,
     AgentClass = Agent,
+    chatgptFactory = options => new DesktopChatGptBrowser(options),
     mcp = null,
     safeStorage = null,
     credentialFile = path.join(CONFIG_DIR, CREDENTIAL_STORE_FILENAME),
@@ -282,6 +285,8 @@ export class DesktopEngine {
     this.config = config;
     this.bootstrap = bootstrap;
     this.AgentClass = AgentClass;
+    this.chatgptFactory = chatgptFactory;
+    this.chatgptBrowser = null;
     this.mcp = mcp || new McpManager({
       onChange: () => this.emit({ type: 'tools-changed', connected: this.mcp?.connectedIds || [] }),
       // File-backed: tier overrides outlive the process. Heuristics apply either way.
@@ -371,13 +376,14 @@ export class DesktopEngine {
     this.watchProjects();
     this.emit({ type: 'status', phase: 'authenticating' });
     try {
-      const session = await this.bootstrap({ config: this.config, onDeviceCode: details => this.emit({ type: 'auth-device-code', ...details }) });
+      const session = await this.connectProvider(this.config);
+      await this.activateBrowserProvider(session.browser);
       this.client = session.client;
       this.tool = session.tool;
       this.models = session.models;
       this.model = session.model;
       this.provider = session.provider;
-      this.emit({ type: 'status', phase: this.client ? 'ready' : 'error' });
+      this.emit({ type: 'status', phase: this.providerReady() ? 'ready' : 'error' });
     } catch (error) {
       this.client = null;
       this.tool = null;
@@ -402,10 +408,10 @@ export class DesktopEngine {
         await this.mcp.ensureComposio(this.config, new ComposioStore(this.composioFile).load(), fetch, this.composioOauth);
       }
       this.emit({ type: 'tools-changed', connected: this.mcp.connectedIds || [] });
-      this.emit({ type: 'status', phase: this.client ? 'ready' : 'error' });
+      this.emit({ type: 'status', phase: this.providerReady() ? 'ready' : 'error' });
     } catch (err) {
       this.emit({ type: 'error', threadId: null, message: `Could not connect tools: ${err.message}` });
-      this.emit({ type: 'status', phase: this.client ? 'ready' : 'error' });
+      this.emit({ type: 'status', phase: this.providerReady() ? 'ready' : 'error' });
     }
   }
 
@@ -420,6 +426,35 @@ export class DesktopEngine {
       version,
       configDir: CONFIG_DIR,
     };
+  }
+
+  providerReady() { return Boolean(this.client || (this.config?.provider === CHATGPT_BROWSER_PROVIDER && this.chatgptBrowser?.kind === CHATGPT_BROWSER_PROVIDER)); }
+  async connectProvider(config) {
+    if (config.provider !== CHATGPT_BROWSER_PROVIDER) {
+      const session = await this.bootstrap({ config, onDeviceCode: details => this.emit({ type: 'auth-device-code', ...details }) });
+      return session;
+    }
+    const browser = this.chatgptBrowser ?? this.chatgptFactory({ directory: path.dirname(this.teammates.file), resourceRoot: root,
+      getContext: id => this.browserContext(id), history: this.secretHistory.clean, emit: event => this.emit(event) });
+    await browser.init();
+    return { client: null, tool: null, models: browser.listModels(), model: '', browser, provider: { name: CHATGPT_BROWSER_PROVIDER, label: CHATGPT_BROWSER_LABEL } };
+  }
+  async activateBrowserProvider(browser) {
+    if (this.chatgptBrowser && this.chatgptBrowser !== browser) await this.chatgptBrowser.close();
+    this.chatgptBrowser = browser ?? null;
+  }
+  browserContext(id) {
+    const teammate = this.teammates.find(id);
+    if (!teammate) throw new Error('Teammate not found');
+    const project = teammate.projectId ? new ProjectStore(this.projectsFile).load().find(teammate.projectId) : null;
+    const workspacePath = project ? projectWorkspace(project) : path.join(path.dirname(this.teammates.file), CHATGPT_WORKSPACE_DIRECTORY);
+    fs.mkdirSync(workspacePath, { recursive: true });
+    return { threadId: id, workspacePath: fs.realpathSync(workspacePath), projectId: project?.id ?? null };
+  }
+  async startChatgptConnection(input) {
+    if (this.turns.size) throw new Error('Wait for active replies to finish before changing the browser connection');
+    if (this.config?.provider !== CHATGPT_BROWSER_PROVIDER || !this.chatgptBrowser) throw new Error('Save ChatGPT Browser as your provider first');
+    return this.chatgptBrowser.start(input);
   }
 
   getDesktopPreferences() { return this.desktopSettings.publicView(this.config || {}); }
@@ -452,8 +487,9 @@ export class DesktopEngine {
     const tune = ['contextWindow', 'maxTokens', 'imageApiBase', 'imageApiKey', 'imageModel', 'unsplashAccessKey', 'pixabayApiKey', 'username', 'timeZone'].some(key => Object.hasOwn(patch, key));
     if ((reconnect || Object.hasOwn(patch, 'model') || tune) && this.turns.size) throw new Error('Wait for active replies to finish before changing the provider or model');
     if (reconnect) {
-      const session = await this.bootstrap({ config: nextConfig, onDeviceCode: details => this.emit({ type: 'auth-device-code', ...details }) });
+      const session = await this.connectProvider(nextConfig);
       this.desktopSettings.save(next);
+      await this.activateBrowserProvider(session.browser);
       this.config = nextConfig;
       this.client = session.client;
       this.tool = session.tool;
@@ -925,6 +961,7 @@ export class DesktopEngine {
   async send(id, text, attachments = null, { surface = 'desktop' } = {}) {
     const prompt = String(text || '').trim();
     if (this.turns.has(id)) throw new Error('This teammate is already replying');
+    if (this.config?.provider === CHATGPT_BROWSER_PROVIDER && this.chatgptBrowser?.kind === CHATGPT_BROWSER_PROVIDER) return this.sendBrowser(id, prompt, attachments, { surface });
     const agent = this.agentFor(id);
     agent.browserCredentialAllowed = surface === 'desktop';
     // Island turns answer in a compact card: the style flag rides the
@@ -1012,10 +1049,48 @@ export class DesktopEngine {
 
   waitForTurn(id) { return this.turns.get(id) || Promise.resolve(); }
 
+  async sendBrowser(id, prompt, attachments, { surface } = {}) {
+    const context = this.browserContext(id);
+    if (!prompt && !attachments?.length) throw new Error('Write a message or attach a file first');
+    const saved = this._savedThread(id), turnId = randomUUID(), messageId = randomUUID();
+    const controller = new AbortController();
+    this.browserControllers ??= new Map(); this.browserControllers.set(id, controller);
+    this.emit({ type: 'turn-start', threadId: id, turnId, model: this.chatgptBrowser.view().selectedModel ?? '', text: this.secretHistory.clean(prompt) });
+    this.emit({ type: 'message-start', threadId: id, messageId });
+    const messages = [...saved.messages, { role: 'user', content: this.secretHistory.clean(prompt) }];
+    let displayed = '', nativeMessageId = null;
+    const publish = ({ text, assistantMessageId }) => {
+      const next = this.secretHistory.clean(text);
+      if ((nativeMessageId && assistantMessageId && nativeMessageId !== assistantMessageId) || !next.startsWith(displayed)) {
+        this.emit({ type: 'message-reset', threadId: id, messageId }); displayed = '';
+      }
+      if (next !== displayed) this.emit({ type: 'assistant-delta', threadId: id, messageId, text: next.slice(displayed.length) });
+      displayed = next; if (assistantMessageId) nativeMessageId = assistantMessageId;
+    };
+    const work = Promise.resolve().then(async () => {
+      await this.secretHistory.prepare(prompt);
+      const result = await this.chatgptBrowser.send({ threadId: id, text: prompt, attachments, surface, signal: controller.signal, context, onProgress: publish });
+      if (result?.outcome !== 'completed') throw new Error('The browser reply is not confirmed as complete');
+      const reply = this.secretHistory.clean(result.text);
+      publish({ text: reply });
+      messages.push({ role: 'assistant', content: reply }); this.teammates.touch(id, reply);
+      this.emit({ type: 'teammates-changed' }); return reply;
+    }).catch(error => {
+      if (!controller.signal.aborted) this.emit({ type: 'error', threadId: id, message: this.secretHistory.clean(error.message) });
+      throw error;
+    }).finally(() => {
+      saveSession(this.sessionFile(id), { savedAt: new Date().toISOString(), model: '', provider: CHATGPT_BROWSER_PROVIDER, messages, todos: saved.todos, projectId: context.projectId }, { transform: this.secretHistory.clean });
+      this.turns.delete(id); this.browserControllers.delete(id); this.approvals.cancelThread(id); this.credentialRequests.cancelThread(id);
+      this.emit({ type: 'message-end', threadId: id, messageId }); this.emit({ type: 'turn-end', threadId: id, turnId });
+    });
+    this.turns.set(id, work); void work.catch(() => {}); return { turnId };
+  }
+
   cancel(id) {
     this.approvals.cancelThread(id);
     this.credentialRequests.cancelThread(id);
     this.browserManager.cancel(id);
+    if (this.browserControllers?.has(id)) { this.browserControllers.get(id).abort(); return this.chatgptBrowser.cancel(id); }
     return this.agents.get(id)?.cancel() || false;
   }
 
@@ -1063,6 +1138,7 @@ export class DesktopEngine {
   }
 
   async close() {
+    await this.chatgptBrowser?.close();
     await this.computerUse?.close();
     await this.scheduler?.stop();
     if (this.projectFileWatcher) { fs.unwatchFile(this.projectsFile, this.projectFileWatcher); this.projectFileWatcher = null; }

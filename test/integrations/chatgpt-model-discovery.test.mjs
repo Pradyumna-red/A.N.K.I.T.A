@@ -118,5 +118,40 @@ test('native shell final widgets use only their exact owned public fallback and 
   const messages = reader.shellTurnMessages({ memoizedProps: { entry } }, turnId, 1000);
   assert.equal(messages[0].content.parts[0], '2^10 = 1024 [ok] and `x\\_y`');
   item.contentReferences[0].source_message_id = 'foreign answer';
-  assert.equal(reader.shellTurnMessages({ memoizedProps: { entry } }, turnId, 1000)[0].content.parts[0], item.content);
+  assert.equal(reader.shellTurnMessages({ memoizedProps: { entry } }, turnId, 1000)[0].content.parts[0], '', 'an unresolved widget reference is not the public answer');
+});
+
+test('native search-unit turn.items projects only exact user and public terminal assistant rows', () => {
+  const reader = adapter({ querySelectorAll: () => [] });
+  const userId = crypto.randomUUID(), finalId = crypto.randomUUID();
+  const turn = { status: 'complete', items: [
+    { type: 'user-message', messageId: userId, serverMessageId: userId, message: 'search-unit question' },
+    { type: 'assistant-message', messageId: crypto.randomUUID(), phase: 'analysis', content: 'private analysis', completed: true },
+    { type: 'chatgpt-reasoning-group', items: [{ type: 'assistant-message', phase: 'final_answer', content: 'nested private final' }] },
+    { type: 'assistant-message', latestMessageId: finalId, phase: 'final_answer', content: 'owned public final', completed: true },
+  ] };
+  const fiber = { memoizedProps: { turn } };
+  const messages = reader.turnMessagesOf(fiber);
+  assert.ok(messages, 'the search-unit model uses turn.items, not entry.turn.items or turn.messages');
+  assert.deepEqual(Array.from(messages, message => message.id), [userId, finalId]);
+  assert.equal(reader.finalMessage(messages[1]), true);
+  assert.equal(JSON.stringify(messages).includes('private'), false);
+  turn.status = 'in_progress';
+  assert.equal(reader.finalMessage(reader.turnMessagesOf(fiber)[1]), false);
+  turn.items[0].serverMessageId = crypto.randomUUID();
+  assert.equal(reader.turnMessagesOf(fiber).length, 0, 'contradictory provider identities stay unread');
+});
+
+test('search-unit widget answers resolve only their own public fallback and remain unread until it is available', () => {
+  const reader = adapter({ querySelectorAll: () => [] }), id = crypto.randomUUID();
+  const item = { type: 'assistant-message', latestMessageId: id, phase: 'final_answer', completed: true,
+    content: '::chatgpt-content-reference{index=0}', contentReferences: [{ type: 'dil', source_message_id: id,
+      model_dil_v2: { fallbackMarkdown: 'owned \\[public\\] reply' } }] };
+  const fiber = { memoizedProps: { turn: { items: [item], status: 'complete' } } };
+  assert.equal(reader.turnMessagesOf(fiber, 1000)[0].content.parts[0], 'owned [public] reply');
+  assert.equal(reader.turnMessagesOf(fiber, 5)[0].content.parts[0], '', 'over-budget text cannot be presented as a truncated final');
+  item.contentReferences[0].source_message_id = crypto.randomUUID();
+  assert.equal(reader.turnMessagesOf(fiber, 1000)[0].content.parts[0], '');
+  item.contentReferences = [];
+  assert.equal(reader.turnMessagesOf(fiber, 1000)[0].content.parts[0], '');
 });

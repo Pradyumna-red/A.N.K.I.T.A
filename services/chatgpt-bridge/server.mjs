@@ -99,6 +99,7 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
       onObservation?.({ binding: { ...binding }, ...observation, modelMode, observedAt });
       if (delivery && value.delivery) {
         await delivery.receipt(value.delivery.operationId, binding, value.delivery.receipt);
+        if (value.delivery.progress) await delivery.progress(value.delivery.operationId, binding, value.delivery.progress);
         if (value.delivery.answer) await delivery.observe(value.delivery.operationId, binding, value.delivery.answer);
       }
       return true;

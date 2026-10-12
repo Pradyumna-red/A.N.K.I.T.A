@@ -3,3 +3,13 @@ export type OperationOutcome = 'queued' | 'claimed' | 'dispatched' | 'accepted' 
 export type BrowserOperation = { id: string; binding: BrowserBinding; kind: 'send' | 'stop' | 'models'; text?: string; modelId?: string; outcome: OperationOutcome };
 export type ToolCall = { id: string; name: string; arguments: Record<string, unknown> };
 export type ToolResult = { content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }>; isError: boolean; structuredContent?: Record<string, unknown> };
+export const CHATGPT_BROWSER_PROVIDER: 'chatgpt-browser';
+export const CHATGPT_BROWSER_LABEL: string;
+export const CHATGPT_CURRENT_MODEL_LABEL: string;
+export const CHATGPT_CONNECTION_CHANGED: 'chatgpt-connection-changed';
+export const CHATGPT_PROFILE_DIRECTORY: string;
+export const CHATGPT_WORKSPACE_DIRECTORY: string;
+export const CHATGPT_SETUP_MESSAGE: string;
+export const CHATGPT_CONNECTION_ACTIONS: { readonly overview: string; readonly start: string; readonly disconnect: string; readonly folder: string; readonly copyPairing: string };
+export type ChatGptConnectionState = { status: string; selectedModel: string | null; threadId?: string | null; conversationId?: string | null; workspacePath?: string; observationReason?: string | null; accountReady?: boolean; modelMode?: string };
+export type ChatGptSetupResult = { pairingUrl: string; extensionPath: string; state: ChatGptConnectionState };

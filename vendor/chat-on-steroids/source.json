@@ -28,6 +28,8 @@
         "committedPath",
         "fiberOf",
         "turnMessagesOf",
+        "turnViewOf",
+        "messagesFromTurnView",
         "conversationEvidenceOf",
         "readPickerSnapshot",
         "readShellPickerSnapshot",

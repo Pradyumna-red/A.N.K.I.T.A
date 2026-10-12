@@ -335,3 +335,50 @@ Known limits: 64 Ki characters/public final projection (oversized answers stay u
 explicit model changes are refused, retained unchanged draft residue needs user clearing,
 and file fsync/atomic replacement does not establish machine-power-loss durability on all
 filesystems. Existing socket interception and packaged recovery remain uncovered.
+
+## Desktop provider and actual account round trip
+
+ChatGPT Browser is now an explicit desktop provider. Selecting it starts no browser or
+tunnel and requires no API chat credentials. Connect attaches one teammate/workspace to
+the user's existing Chrome conversation. The settings panel uses the desktop's existing
+theme, displays the current ChatGPT model honestly when its name is unavailable, and
+offers the companion folder and a private owner-only pairing link. Browser Send bypasses
+API bootstrap and Agent; public native progress/final receipts drive the existing chat
+events and SecretHistory. Browser token/cost usage remains unknown.
+
+Provider routing/settings and progress each failed their new regression first. The
+isolated real Electron/Chromium verifier then reported `sends:1,acceptedUserRead:true,`
+`finalReceiptRead:true,desktopReplyMatched:true,savedHistoryMatched:true,turnEnds:1,`
+`inventedUsage:false,rendererErrors:[],hostedChatGpt:false`. Its connection UI screenshot
+was inspected. The pre-account serial suite passed **1280 tests, 1279 passed, 0 failed,
+1 existing Windows/POSIX skip**, 675713 ms. Both full renderer CSP surfaces mounted
+without errors.
+
+The user's actual account sent instantly, but native delivery remained dispatched.
+CoS has a third public projection, `props.turn.items` on search units; our focused port
+had covered only classic `turn.messages` and typed `entry.turn.items`. Adding that
+projection recovered the original exact user/final without another Send. Its answer
+comparison exposed a second bug: the search-unit final contained only a ChatGPT widget
+reference. That is not answer text. Both typed layouts now resolve only their own DIL
+public fallback; missing, contradictory or oversized fallbacks remain unread. Two new
+reader regressions first failed then passed. A real isolated search-unit Send fixture
+also records its exact unescaped widget answer with one click.
+
+A fresh check used the already paired actual ANKITA test window and real saved ChatGPT
+conversation. The safe trace was `actualElectron:true,hostedChatGpt:true,sends:1,`
+`finished:true,replyMatched:true,historyMatched:true,turnEnds:1,errors:0`. The original
+question was not replayed. No private URLs, account transcripts or marker bytes are
+recorded here. The earlier development-profile completion contains the unresolved
+widget reference and is not counted as a successful answer; the fresh check is the
+successful account gate.
+
+After both reader fixes, the combined provider/settings/startup/delivery/ownership
+checks passed **96/96**, 21755 ms. The desktop build exited 0 (`built in 6.38s`)
+and `git diff --check` passed. The full suite above preceded these final reader
+fixes; the final whole-branch serial run remains Task 7's gate.
+
+The standalone desktop native tool gateway/tunnel, tool cards and pointer are Task 5.
+Actual browser generation Stop, attachments and restart recovery are Task 6. Packaged
+resource verification and the final whole-branch review are Task 7. The existing API
+provider remains tested. This checkpoint does not claim a released EXE or complete
+browser tool/Stop support.

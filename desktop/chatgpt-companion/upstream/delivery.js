@@ -2,7 +2,7 @@
  * Only a host-dispatched operation can click one exact native Send control.
  */
 var AnkitaBrowserDelivery = (() => {
-  const VERSION = 1; // Page custody version; reinjection preserves a spent Send instead of clicking again.
+  const VERSION = 2; // Adapter revision; the durable host dispatch prevents replay across upgrades; watch restores only observation custody.
   const prior = globalThis.AnkitaBrowserDelivery;
   if (prior?.version === VERSION) return prior;
   const SCOPE = ['leaseId', 'epoch', 'tabId', 'conversationId']; // Opaque page ownership only.
@@ -46,7 +46,7 @@ var AnkitaBrowserDelivery = (() => {
       const fiber = readers.fiberOf(section), evidence = readers.conversationEvidenceOf(fiber);
       if (evidence.conflict || evidence.conversationId !== scope.conversationId) continue;
       const explicit = section.getAttribute(TURN_ID_ATTRIBUTE) || section.closest(`[${TURN_KEY_ATTRIBUTE}]`)?.getAttribute(TURN_KEY_ATTRIBUTE);
-      const messages = (readers.shellTurnMessages(fiber, explicit, config.maxFinalTextChars) ?? readers.turnMessagesOf(fiber) ?? []).slice(-config.maxRequests);
+      const messages = (readers.shellTurnMessages(fiber, explicit, config.maxFinalTextChars) ?? readers.turnMessagesOf(fiber, config.maxFinalTextChars) ?? []).slice(-config.maxRequests);
       const users = messages.filter(message => message?.author?.role === 'user' && opaque(message.id, config));
       const group = users.length === 1 && opaque(explicit, config) && !FALLBACK_TURN.test(explicit) ? explicit : null;
       let currentUser = null;
@@ -119,10 +119,12 @@ var AnkitaBrowserDelivery = (() => {
       const user = users[0], receipt = { conversationId: scope.conversationId, userMessageId: user.id, turnId: user.turnId };
       const publicAnswers = rows.filter(row => row.userMessageId === user.id && row.turnId === user.turnId && row.role === 'assistant' && row.channel === 'final');
       const latest = publicAnswers.at(-1);
+      const progress = latest && typeof latest.text === 'string' && latest.text.trim() && latest.text.length <= config.maxFinalTextChars ?
+        { ...receipt, assistantMessageId: latest.id, role: latest.role, channel: latest.channel, text: latest.text } : null;
       const answer = latest && latest.end_turn === true && latest.status === 'finished_successfully' && typeof latest.text === 'string' &&
         latest.text.trim() && latest.text.length <= config.maxFinalTextChars ? { ...receipt, assistantMessageId: latest.id, role: latest.role,
         channel: latest.channel, end_turn: latest.end_turn, status: latest.status, text: latest.text } : null;
-      return { operationId: state.operationId, receipt, answer };
+      return { operationId: state.operationId, receipt, answer, progress: answer ? null : progress }; // A final carries its text once within the bounded observation body.
     } catch { return null; }
   }
   function watch(operation, config) {

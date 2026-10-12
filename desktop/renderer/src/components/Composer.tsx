@@ -199,8 +199,8 @@ export async function readFile(file: File): Promise<Attachment> {
   return { name: file.name, image: false, data: toBase64(new TextEncoder().encode(new TextDecoder().decode(bytes))) };
 }
 
-export function Composer({ threadId, name, messages, running, models, model, onModel, onSend, onStop }: {
-  threadId: string; name: string; messages: ChatMessage[]; running: boolean; models: Model[]; model: string;
+export function Composer({ threadId, name, messages, running, models, model, provider, onModel, onSend, onStop }: {
+  threadId: string; name: string; messages: ChatMessage[]; running: boolean; models: Model[]; model: string; provider?: string;
   onModel: (id: string) => void; onSend: (text: string, attachments?: { name: string; data: string; kind?: 'document'; images?: string[] }[]) => void; onStop: () => void;
 }) {
   const captured = useCallback((item: import('../../../shared/wire').CompanionCaptureItem) => {
@@ -280,7 +280,7 @@ export function Composer({ threadId, name, messages, running, models, model, onM
         <span className="composer-key-hint">Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line <span aria-hidden="true">·</span> Ctrl + U to attach</span>
       </div>
       <div className="composer-controls">
-        <ModelPicker models={models} value={model} onChange={onModel} openUp />
+        <ModelPicker models={models} value={model} onChange={onModel} openUp provider={provider} />
         {running ? <button type="button" className="composer-action stop" onClick={onStop} title="Stop response" aria-label="Stop response"><Icon name="stop" size={17} /></button>
           : <button type="button" className="composer-action send" onClick={submit} disabled={(!text.trim() && !attachments.length) || reading} title="Send message" aria-label="Send message"><Icon name="send" size={19} stroke={2.1} /></button>}
       </div>

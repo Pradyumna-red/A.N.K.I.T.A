@@ -5,6 +5,7 @@ import { Icon } from './Icons';
 import { WindowControls } from './WindowControls';
 import { TeammateAvatar } from './TeammateAvatar';
 import { sidebarWidth } from '../../../shared/desktop-layout.mjs';
+import { CHATGPT_BROWSER_PROVIDER, CHATGPT_BROWSER_LABEL, CHATGPT_CURRENT_MODEL_LABEL } from '../../../shared/chatgpt-browser.mjs';
 
 export function Sidebar({ teammates, selectedId, search, onSearch, onSelect, onCreate, onOpenSettings, onOpenPlugins, onOpenProjects, onOpenChat, pluginsOpen, projectsOpen, provider, model, phase, chrome, unread, toolsCount, width, collapsed, onCollapse, onResize }: {
   teammates: Teammate[]; selectedId: string | null; search: string; onSearch: (value: string) => void;
@@ -60,7 +61,7 @@ export function Sidebar({ teammates, selectedId, search, onSearch, onSelect, onC
     </nav>
     <div className="sidebar-footer">
       <span className={`status-indicator ${phase === 'ready' ? 'live' : ''}`} />
-      <div><strong>{phase === 'ready' ? 'Ready when you are' : phase === 'connecting-tools' ? 'Connecting tools' : phase === 'error' ? 'Something went wrong' : 'Starting Ankita'}</strong><small>{provider} · {model || 'Choosing a model'}{toolsCount ? ` · ${toolsCount} tool${toolsCount === 1 ? '' : 's'}` : ''}</small></div>
+      <div><strong>{phase === 'ready' ? 'Ready when you are' : phase === 'connecting-tools' ? 'Connecting tools' : phase === 'error' ? 'Something went wrong' : 'Starting Ankita'}</strong><small>{provider === CHATGPT_BROWSER_PROVIDER ? CHATGPT_BROWSER_LABEL : provider} · {model || (provider === CHATGPT_BROWSER_PROVIDER ? CHATGPT_CURRENT_MODEL_LABEL : 'Choosing a model')}{toolsCount ? ` · ${toolsCount} tool${toolsCount === 1 ? '' : 's'}` : ''}</small></div>
     </div>
     </div></div>
     </div>

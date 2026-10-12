@@ -15,7 +15,7 @@ const binding = { leaseId: 'browser-fixture-lease', epoch: 'browser-fixture-epoc
   browserId: 'browser-fixture', threadId: 'host-fixture', workspacePath: 'host-only' };
 const fixtureOrigin = 'http://ankita-fixture.local';
 const config = { ...browserWire, chatgptOrigin: fixtureOrigin };
-async function fixture(t, { busy = false, draft = '', loseAck = false, shell = false, delayedControl = false } = {}) {
+async function fixture(t, { busy = false, draft = '', loseAck = false, shell = false, search = false, delayedControl = false } = {}) {
   const browser = await chromium.launch({ headless: true }); t.after(() => browser.close());
   const page = await browser.newPage();
   await page.route(`${fixtureOrigin}/**`, route => route.fulfill({ contentType: 'text/html', body:
@@ -23,7 +23,7 @@ async function fixture(t, { busy = false, draft = '', loseAck = false, shell = f
   await page.goto(`${fixtureOrigin}/c/${conversationId}`);
   await page.addScriptTag({ path: fileURLToPath(new URL('../../desktop/chatgpt-companion/upstream/readers.js', import.meta.url)) });
   await page.addScriptTag({ path: fileURLToPath(new URL('../../desktop/chatgpt-companion/upstream/delivery.js', import.meta.url)) });
-  await page.evaluate(({ conversationId, userMessageId, turnId, assistantMessageId, shell, delayedControl }) => {
+  await page.evaluate(({ conversationId, userMessageId, turnId, assistantMessageId, shell, search, delayedControl }) => {
     window.sentCount = 0;
     if (delayedControl) {
       const button = document.querySelector('[data-testid="send-button"]'); button.disabled = true;
@@ -35,22 +35,34 @@ async function fixture(t, { busy = false, draft = '', loseAck = false, shell = f
       const interim = { id: assistantMessageId, author: { role: 'assistant' }, channel: 'commentary', content: { content_type: 'text', parts: ['interim commentary'] }, end_turn: false, status: 'in_progress' };
       const section = document.createElement('section'); section.dataset.testid = 'conversation-turn-fixture'; section.dataset.turnId = turnId;
       section.textContent = user.content.parts[0]; section.__reactFiber$fixture = { memoizedProps: { conversationId, turn: { messages: [user, interim] } } };
-      if (shell) {
+      if (shell || search) {
         const entry = { id: turnId, turn: { status: 'running', items: [
           { type: 'user-message', messageId: userMessageId, serverMessageId: userMessageId, message: user.content.parts[0] },
           { type: 'chatgpt-reasoning-group', items: [{ type: 'assistant-message', phase: 'final_answer', content: 'private nested working text', completed: true }] },
           { type: 'assistant-message', messageId: assistantMessageId, phase: 'final_answer', completed: false, content: 'partial public answer' },
         ] } };
         section.__reactFiber$fixture = { memoizedProps: { conversationId, entry } };
+        if (search) {
+          delete section.dataset.testid; delete section.dataset.turnId;
+          section.dataset.chatgptSearchUnitKey = `${turnId}:user`;
+          section.__reactFiber$fixture = { memoizedProps: { conversationId, turn: entry.turn } };
+        }
       }
       document.querySelector('form').before(section); document.querySelector('#prompt-textarea').textContent = '';
       window.finishFixture = () => {
         interim.channel = 'final'; interim.end_turn = true; interim.status = 'finished_successfully'; interim.content.parts = ['unique final answer'];
         const entry = section.__reactFiber$fixture.memoizedProps.entry;
         if (entry) { entry.turn.status = 'complete'; entry.turn.items.at(-1).completed = true; entry.turn.items.at(-1).content = 'unique shell final answer'; }
+        const searchTurn = section.__reactFiber$fixture.memoizedProps.turn;
+        if (searchTurn?.items) {
+          searchTurn.status = 'complete';
+          const answer = searchTurn.items.at(-1); answer.completed = true; answer.content = '::chatgpt-content-reference{index=0}';
+          answer.contentReferences = [{ type: 'dil', source_message_id: assistantMessageId,
+            model_dil_v2: { fallbackMarkdown: 'unique search\\-unit final answer' } }];
+        }
       };
     };
-  }, { conversationId, userMessageId, turnId, assistantMessageId: crypto.randomUUID(), shell, delayedControl });
+  }, { conversationId, userMessageId, turnId, assistantMessageId: crypto.randomUUID(), shell, search, delayedControl });
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-browser-send-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const store = new BrowserOperationStore({ directory }), delivery = new BrowserDelivery({ store });
   const operation = { id: crypto.randomUUID(), binding, kind: 'send', text: 'unique browser question' };
@@ -101,6 +113,21 @@ test('native typed shell and delayed React control readiness deliver one exact f
   assert.equal(JSON.stringify(final).includes('private nested'), false);
   await delivery.observe(operation.id, binding, final.answer);
   assert.equal((await store.get(operation.id)).completion.text, 'unique shell final answer');
+  assert.equal(await page.evaluate(() => window.sentCount), 1);
+});
+
+test('native search-unit Send reads its own widget answer into the durable final after one click', async t => {
+  const { page, run, snapshot, delivery, operation, store } = await fixture(t, { search: true });
+  assert.equal((await run()).dispatched, true);
+  const initial = await snapshot();
+  assert.equal(initial.receipt.userMessageId, userMessageId);
+  assert.equal(initial.answer, null);
+  await page.evaluate(() => window.finishFixture());
+  const final = await snapshot();
+  assert.equal(final.answer.text, 'unique search-unit final answer');
+  assert.equal(JSON.stringify(final).includes('private nested'), false);
+  assert.equal(await delivery.observe(operation.id, binding, final.answer), true);
+  assert.equal((await store.get(operation.id)).completion.text, final.answer.text);
   assert.equal(await page.evaluate(() => window.sentCount), 1);
 });
 
