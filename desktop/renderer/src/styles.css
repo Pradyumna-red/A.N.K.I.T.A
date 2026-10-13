@@ -1140,4 +1140,16 @@ html[data-theme="slate"] .search-box { background: #1e2931; }
 .chatgpt-pairing-link button { margin: 0; }
 .chatgpt-connection-notice { color: var(--gold-light); overflow-wrap: anywhere; }
 .chatgpt-connection :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.chatgpt-native-setup { border-top: 1px solid var(--edge); padding-top: 18px; }
+.chatgpt-native-setup summary { display: flex; gap: 9px; align-items: center; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text); }
+.chatgpt-native-setup summary small { margin-left: auto; color: var(--text-dim); font-size: 10px; font-weight: 400; }
+.chatgpt-native-links { display: flex; flex-wrap: wrap; gap: 16px; margin: 14px 0; font-size: 11px; }
+.chatgpt-native-links a { color: var(--gold-light); text-decoration: none; }
+.chatgpt-native-card { display: grid; gap: 14px; padding: 18px; margin-top: 14px; border: 1px solid var(--edge-strong); border-radius: 12px; background: var(--canvas); }
+.chatgpt-native-card header { display: flex; gap: 10px; align-items: center; }
+.chatgpt-native-card header strong { display: block; font-size: 13px; color: var(--text); }
+.chatgpt-native-card header span { font-size: 11px; color: var(--text-dim); }
+.chatgpt-native-card > p { margin: 0; }
+.chatgpt-native-card > small { color: var(--text-dim); font-size: 11px; line-height: 1.6; }
+.chatgpt-native-card > button { justify-self: start; }
 @media (max-width: 900px) { .chatgpt-connection > header { flex-wrap: wrap; } .chatgpt-status { margin-left: 56px; } .chatgpt-pairing-link { flex-wrap: wrap; } }

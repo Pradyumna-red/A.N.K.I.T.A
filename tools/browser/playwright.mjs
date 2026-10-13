@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { assertTaskBrowserPage, isProtectedBrowserPage } from './protected-pages.mjs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { CONFIG_DIR } from '../../src/core/config.mjs';
@@ -47,6 +48,7 @@ export async function guardBrowserUrl(input, ctx = {}, navigation = true) {
   let url;
   try { url = new URL(String(input || '')); } catch { throw new Error('Enter a valid HTTP or HTTPS URL'); }
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only HTTP and HTTPS URLs can open in the browser');
+  assertTaskBrowserPage(url.href, ctx.protectedBrowserPage);
   const host = url.hostname.toLowerCase();
   if (navigation) {
     await ctx.authorizeNavigation?.(url.href);
@@ -83,7 +85,8 @@ export function screenshotFile(cwd) {
 }
 
 export class PlaywrightBrowserAdapter {
-  constructor({ profile = path.join(CONFIG_DIR, 'browser', 'playwright'), renderTimeoutMs = PAGE_RENDER_TIMEOUT_MS } = {}) {
+  constructor({ profile = path.join(CONFIG_DIR, 'browser', 'playwright'), renderTimeoutMs = PAGE_RENDER_TIMEOUT_MS, protectedPage = null } = {}) {
+    this.protectedPage = protectedPage;
     this.profile = profile;
     this.context = null;
     this.page = null;
@@ -192,15 +195,17 @@ export class PlaywrightBrowserAdapter {
 
   #findTarget(tab) {
     const pages = this.context?.pages().filter(page => !page.isClosed()) || [];
-    const found = tab ? pages.find(page => this.ids.get(page) === String(tab)) : this.page || pages[0];
+    const allowed = this.protectedPage ? pages.filter(page => !isProtectedBrowserPage(page.url(), this.protectedPage)) : pages;
+    const found = tab ? pages.find(page => this.ids.get(page) === String(tab)) : allowed.includes(this.page) ? this.page : allowed[0];
     if (!found) throw new Error(tab ? `Tab ${tab} is closed` : 'No browser tab is open');
+    if (this.protectedPage) assertTaskBrowserPage(found.url(), this.protectedPage);
     return found;
   }
 
   #target(tab) { const found = this.#findTarget(tab); if (found !== this.page) this.invalidate(); this.page = found; return found; }
 
   async tabs() {
-    return Promise.all((this.context?.pages() || []).filter(page => !page.isClosed()).map(async page => ({
+    return Promise.all((this.context?.pages() || []).filter(page => !page.isClosed() && !isProtectedBrowserPage(page.url(), this.protectedPage)).map(async page => ({
       id: this.ids.get(page), url: page.url().slice(0, 500), title: this.dialogs.has(page) ? '' : (await page.title().catch(() => '')).slice(0, 160), active: page === this.page,
     })));
   }
@@ -257,6 +262,7 @@ export class PlaywrightBrowserAdapter {
   async selectTab(tab) { const page = this.#target(tab); await page.bringToFront(); this.invalidate(); }
 
   #policy(ctx) {
+    ctx = { ...ctx, protectedBrowserPage: this.protectedPage ?? ctx.protectedBrowserPage };
     if (ctx.credentialSettings) ctx = { ...ctx, settings: ctx.credentialSettings() };
     const policyKey = JSON.stringify([ctx.settings?.allowedSites, ctx.settings?.blockedSites, allowPrivateHosts(ctx)]);
     if (policyKey !== this.policyKey) { this.checkedHosts.clear(); this.policyKey = policyKey; }

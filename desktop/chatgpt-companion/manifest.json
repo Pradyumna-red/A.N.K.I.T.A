@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ANKITA ChatGPT Companion",
   "version": "0.1.0",
-  "description": "Read-only, explicitly selected ChatGPT tab attachment for ANKITA. Existing account limits apply.",
+  "description": "Connect one chosen ChatGPT conversation to ANKITA. Your account models and limits apply.",
   "permissions": [
     "tabs",
     "scripting",

@@ -9,6 +9,12 @@ import { CHATGPT_BROWSER_PROVIDER } from '../../src/integrations/chatgpt-browser
 import { ChatGptRuntime } from '../../src/integrations/chatgpt-browser/runtime.mjs';
 import { BrowserOperationStore } from '../../src/integrations/chatgpt-browser/operation-store.mjs';
 import { BrowserDelivery } from '../../src/integrations/chatgpt-browser/delivery.mjs';
+import { DesktopChatGptBrowser } from '../../desktop/electron/chatgpt-browser.mjs';
+import { ToolHost } from '../../src/core/tool-host.mjs';
+import { McpClient } from '../../src/integrations/mcp-client.mjs';
+import { fileURLToPath } from 'node:url';
+import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
+import { SecureStore } from '../../desktop/electron/secure-store.mjs';
 
 function fixture(t, overrides = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-desktop-chatgpt-'));
@@ -80,6 +86,24 @@ test('API provider still constructs its Agent and preserves existing delta and t
   assert.equal(events.filter(event => event.type === 'turn-end').length, 1);
 });
 
+test('explicit browser resume imports its exact saved receipt once without sending a question or constructing an Agent', async t => {
+  const { engine, browser, calls, events } = fixture(t);
+  await engine.init(); const teammate = engine.createTeammate({ name: 'Resume teammate' });
+  const operation = { id: 'saved-owned-operation', text: 'saved question', outcome: 'completed', completion: { text: 'saved native answer' } };
+  let resumed = 0, consumed = 0;
+  browser.operation = async () => operation;
+  browser.resume = async input => { resumed++; assert.equal(input.operationId, operation.id); return { outcome: 'completed', operationId: operation.id, text: operation.completion.text }; };
+  browser.consume = async () => consumed++;
+  await engine.resumeBrowser(teammate.id, operation.id); await engine.waitForTurn(teammate.id);
+  await engine.resumeBrowser(teammate.id, operation.id); await engine.waitForTurn(teammate.id);
+  const history = engine.loadThread(teammate.id);
+  assert.equal(history.filter(row => row.role === 'user' && row.content === operation.text).length, 1);
+  assert.equal(history.filter(row => row.role === 'assistant' && row.content === operation.completion.text).length, 1);
+  assert.equal(resumed, 1); assert.equal(consumed, 2);
+  assert.deepEqual(calls, { api: 0, browser: 0, agents: 0 });
+  assert.equal(events.filter(event => event.type === 'turn-end').length, 1);
+});
+
 test('runtime forwards only an owned public reply and settles from the durable final receipt', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-runtime-progress-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const binding = { leaseId: 'runtime-lease', epoch: 'runtime-epoch', tabId: 1, browserId: 'runtime-browser', conversationId: crypto.randomUUID(), threadId: 'runtime-thread', workspacePath: directory };
@@ -100,4 +124,186 @@ test('runtime forwards only an owned public reply and settles from the durable f
   await delivery.observe(operation.id, binding, { ...answer, text: 'public final', end_turn: true, status: 'finished_successfully' });
   assert.equal((await sending).text, 'public final');
   assert.equal((await store.get(operation.id)).outcome, 'completed');
+});
+
+test('desktop native ToolHost retains the bound workspace and publishes real tool cards without an API Agent', async t => {
+  const { engine, events, calls } = fixture(t);
+  await engine.init(); const teammate = engine.createTeammate({ name: 'Native tool teammate' });
+  const context = engine.browserContext(teammate.id);
+  engine.config.autoApprove = true;
+  const host = engine.toolHostForBrowser({ ...context, leaseId: 'native-test-lease' });
+  const result = await host.execute({ id: 'native-write', name: 'write_file', arguments: { path: 'native.txt', content: 'bound native bytes', cwd: os.tmpdir() } }, { surface: 'core' });
+  assert.equal(result.isError, false);
+  assert.equal(fs.readFileSync(path.join(context.workspacePath, 'native.txt'), 'utf8'), 'bound native bytes');
+  assert.equal(calls.agents, 0); assert.equal(calls.api, 0);
+  assert.equal(events.filter(event => event.type === 'tool-call' && event.callId === 'native-write').length, 1);
+  assert.equal(events.filter(event => event.type === 'tool-result' && event.callId === 'native-write').length, 1);
+  assert.ok(engine.loadThread(teammate.id).some(message => message.role === 'tool' && message.name === 'write_file'));
+});
+
+test('bound desktop native gateway performs real write/edit/readback and command with exact ownership and no API client', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-desktop-native-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const state = { activatedTools: new Set() }, threadId = 'fixture-thread', conversationId = crypto.randomUUID(), browserId = 'fixture-browser';
+  const secrets = new Map(); let helperStarts = 0;
+  const secureStore = { saveSecret: async (name, value) => secrets.set(name, value), listSecrets: async () => [...secrets.keys()].map(name => ({ name })),
+    withSecret: async (name, use) => secrets.has(name) ? use(secrets.get(name)) : null };
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)), secureStore,
+    nativeArtifact: { binary: fileURLToPath(import.meta.url), sha256: 'a'.repeat(64) }, nativeTunnelFactory: options => ({
+      view: () => ({ surface: options.surface, status: 'connecting' }), start: async ({ apiKey }) => { helperStarts++; assert.equal(apiKey, 'fixture-restricted-key'); }, close: async () => {} }),
+    getContext: id => ({ threadId: id, workspacePath: directory }), toolHostForBinding: binding => new ToolHost({ context: {
+      cwd: binding.workspacePath, workspacePath: binding.workspacePath, threadId: binding.threadId, state,
+      config: { autoApprove: true }, allowedTools: new Set(['read_file', 'write_file', 'edit_file', 'run_command', 'job_status', 'job_wait']) } }) });
+  t.after(() => manager.close());
+  await manager.start({ threadId });
+  await manager.bridge.pair({ version: 1, extensionId: 'a'.repeat(32), browserId });
+  await manager.bridge.reportTabs({ browserId, tabs: [{ id: 1, url: `https://chatgpt.com/c/${conversationId}` }] });
+  const binding = await manager.bridge.bind({ browserId, tabId: 1, conversationId, threadId, workspacePath: directory });
+  for (const requestIds of [[], ['fixture-native-request']]) {
+    const command = await manager.bridge.poll();
+    await manager.bridge.observe({ binding, nonce: command.nonce, snapshot: { conversationId, accountReady: true, models: [], selectedModel: null, requestIds } });
+  }
+  await manager.startNativeTools({ surface: 'core', tunnelId: 'tunnel_' + 'a'.repeat(32), apiKey: 'fixture-restricted-key' });
+  assert.equal(helperStarts, 1);
+  assert.equal(JSON.stringify(manager.view()).includes('fixture-restricted-key'), false);
+  const gateway = await manager.startNativeGateway();
+  const client = new McpClient({ transport: 'http', url: gateway.url, headers: { 'x-request-id': 'fixture-native-request/hop' } });
+  t.after(() => client.close());
+  await client.connect();
+  assert.equal((await client.callTool('write_file', { path: 'native.txt', content: 'before native edit' })).isError, false);
+  assert.equal((await client.callTool('edit_file', { path: 'native.txt', old_string: 'before', new_string: 'after' })).isError, false);
+  assert.match((await client.callTool('read_file', { path: 'native.txt' })).raw.content[0].text, /after native edit/);
+  const marker = 'native-command-' + crypto.randomUUID();
+  const quote = text => process.platform === 'win32' ? "'" + text.replaceAll("'", "''") + "'" : "'" + text.replaceAll("'", "'\\''") + "'";
+  const command = (process.platform === 'win32' ? '& ' : '') + quote(process.execPath) + ' -e ' + quote(`process.stdout.write(${JSON.stringify(marker)})`);
+  const executed = await client.callTool('run_command', { command, yield_ms: 10000 });
+  assert.equal(executed.isError, false);
+  const job = [...state.jobs.values()].at(-1);
+  if (!job.done) await new Promise((resolve, reject) => { job.child.once('close', resolve); job.child.once('error', reject); });
+  assert.equal(job.done, true); assert.equal(job.code, 0); assert.ok(job.out.toString().includes(marker));
+  const stale = await manager.bridge.disconnect(); assert.equal(stale.status, 'disconnected');
+  await assert.rejects(client.callTool('write_file', { path: 'late.txt', content: 'never' }));
+  assert.equal(fs.existsSync(path.join(directory, 'late.txt')), false);
+  console.log('NATIVE_LOCAL_ACTION_PROOF', JSON.stringify({ realHttpMcp: true, exactOwnership: true, writeEditReadback: true, commandDone: job.done, exitCode: job.code, hostedChatGpt: false }));
+});
+
+test('disconnect during secure native setup cannot start a late helper or revive its connection', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-native-setup-stop-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  let entered, release, starts = 0;
+  const saving = new Promise(resolve => { entered = resolve; }), gate = new Promise(resolve => { release = resolve; });
+  const secureStore = { listSecrets: async () => [], saveSecret: async () => { entered(); await gate; }, withSecret: async (_, use) => use('private-key') };
+  const threadId = 'setup-thread', conversationId = crypto.randomUUID(), browserId = 'setup-browser';
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)), secureStore,
+    nativeArtifact: { binary: fileURLToPath(import.meta.url), sha256: 'a'.repeat(64) },
+    toolHostForBinding: () => ({ specs: () => [], cancel: async () => {} }), getContext: id => ({ threadId: id, workspacePath: directory }),
+    nativeTunnelFactory: () => ({ view: () => ({ status: 'connecting' }), start: async () => { starts++; }, close: async () => {} }) });
+  t.after(() => manager.close());
+  await manager.start({ threadId });
+  await manager.bridge.pair({ version: 1, extensionId: 'a'.repeat(32), browserId });
+  await manager.bridge.reportTabs({ browserId, tabs: [{ id: 1, url: `https://chatgpt.com/c/${conversationId}` }] });
+  const binding = await manager.bridge.bind({ browserId, tabId: 1, conversationId, threadId, workspacePath: directory });
+  const command = await manager.bridge.poll();
+  await manager.bridge.observe({ binding, nonce: command.nonce, snapshot: { conversationId, accountReady: true, models: [], selectedModel: null, requestIds: [] } });
+  const starting = manager.startNativeTools({ surface: 'core', tunnelId: 'tunnel_' + 'a'.repeat(32), apiKey: 'private-key' });
+  void starting.catch(() => {});
+  await saving; await manager.close(); release();
+  await assert.rejects(starting, /changed|connection|setup/i);
+  assert.equal(starts, 0);
+});
+
+test('native shutdown still closes owned transports when a local cancellation reports an error', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-native-close-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  let helpersClosed = 0, gatewaysClosed = 0;
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)), getContext: () => ({}) });
+  manager.nativeHosts.set('failed-native', { cancel: async () => { throw new Error('Owned job termination unconfirmed'); } });
+  manager.nativeTunnels.set('core', { close: async () => { helpersClosed++; } });
+  manager.gateway = { close: async () => { gatewaysClosed++; } };
+  await assert.rejects(manager.closeNative(), /termination unconfirmed/);
+  assert.equal(helpersClosed, 1); assert.equal(gatewaysClosed, 1);
+});
+
+test('a stopped browser binding cannot enable a late native helper even while its selected page remains ready', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-stopped-native-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const binary = path.join(directory, 'publisher-fixture.exe'); fs.writeFileSync(binary, 'fixture');
+  let starts = 0;
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)),
+    getContext: threadId => ({ threadId, workspacePath: directory }), nativeArtifact: { binary }, toolHostForBinding: () => ({ specs: () => [], cancel: async () => {} }),
+    secureStore: { listSecrets: async () => [], saveSecret: async () => {}, withSecret: async (_, use) => use('fixture-key') },
+    nativeTunnelFactory: () => ({ start: async () => { starts++; }, close: async () => {}, view: () => ({ status: 'connected' }) }) });
+  await manager.init(); await manager.start({ threadId: 'stopped-owner' }); t.after(() => manager.close());
+  const browserId = 'stopped-browser', conversationId = crypto.randomUUID();
+  await manager.bridge.pair({ version: 1, extensionId: 'a'.repeat(32), browserId });
+  await manager.bridge.reportTabs({ browserId, tabs: [{ id: 1, url: `https://chatgpt.com/c/${conversationId}` }] });
+  const binding = await manager.bridge.bind({ browserId, tabId: 1, conversationId, threadId: 'stopped-owner', workspacePath: directory });
+  const poll = await manager.bridge.poll(); await manager.bridge.observe({ binding, nonce: poll.nonce, snapshot: { conversationId, accountReady: true, models: [], selectedModel: null, requestIds: [] } });
+  await manager.cancel(binding.threadId);
+  await assert.rejects(manager.startNativeTools({ surface: 'core', tunnelId: 'tunnel_' + 'a'.repeat(32), apiKey: 'fixture-key' }), /stop|cancel/i);
+  assert.equal(starts, 0);
+});
+
+test('native setup refuses a tunnel already assigned to another active surface before saving a key or starting a helper', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-native-collision-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  let saved = 0, starts = 0;
+  const binary = path.join(directory, 'fixture-native.exe'); fs.writeFileSync(binary, 'fixture');
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)), getContext: () => ({}), nativeArtifact: { binary },
+    nativeTunnelFactory: () => { starts++; }, secureStore: { listSecrets: async () => [], saveSecret: async () => { saved++; }, withSecret: async () => {} } });
+  const tunnelId = 'tunnel_' + 'a'.repeat(32);
+  await manager.nativeSettings.run(state => { state.tunnels.core = { tunnelId, desired: true }; }, true);
+  await assert.rejects(manager.startNativeTools({ surface: 'desktop', tunnelId, apiKey: 'fixture-key' }), /different tunnel|another.*surface/i);
+  assert.equal(starts, 0); assert.equal(saved, 0);
+});
+
+test('concurrent native setup reserves its tunnel before any credential or gateway await', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-native-reservation-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const binary = path.join(directory, 'fixture-native.exe'); fs.writeFileSync(binary, 'fixture');
+  let entered, release, saved = 0;
+  const reached = new Promise(resolve => { entered = resolve; }), blocked = new Promise(resolve => { release = resolve; });
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)), getContext: () => ({}), nativeArtifact: { binary },
+    secureStore: { listSecrets: async () => [], saveSecret: async () => { saved++; }, withSecret: async () => {} } });
+  manager.startNativeGateway = async () => { entered(); await blocked; throw new Error('Fixture gateway closed'); };
+  const tunnelId = 'tunnel_' + 'b'.repeat(32);
+  const first = manager.startNativeTools({ surface: 'core', tunnelId, apiKey: 'fixture-key' });
+  void first.catch(() => {}); await reached;
+  // Timeout bounds a broken implementation that lets the competing setup enter the blocked gateway.
+  const competing = manager.startNativeTools({ surface: 'desktop', tunnelId, apiKey: 'other-key' });
+  void competing.catch(() => {});
+  const timeout = setTimeout(release, 100);
+  try { await assert.rejects(competing, /different tunnel|another.*surface/i); }
+  finally { clearTimeout(timeout); release(); }
+  await assert.rejects(first, /Fixture gateway closed/); assert.equal(saved, 0);
+});
+
+test('encrypted desktop pairing restores the same companion with observation only and explicit disconnect stays disconnected', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-browser-restart-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const key = randomBytes(32), vaultFile = path.join(directory, 'vault.json');
+  const secureStore = new SecureStore({ file: vaultFile, safeStorage: {
+    isAsyncEncryptionAvailable: async () => true,
+    encryptStringAsync: async () => { throw new Error('fixture encryption configured below'); },
+    decryptStringAsync: async () => { throw new Error('fixture encryption configured below'); },
+  } });
+  secureStore.safeStorage.encryptStringAsync = async text => {
+    const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', key, iv), bytes = Buffer.concat([cipher.update(text), cipher.final()]);
+    return Buffer.concat([iv, cipher.getAuthTag(), bytes]);
+  };
+  secureStore.safeStorage.decryptStringAsync = async bytes => {
+    const decipher = createDecipheriv('aes-256-gcm', key, bytes.subarray(0, 12)); decipher.setAuthTag(bytes.subarray(12, 28));
+    return { result: Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString() };
+  };
+  const threadId = 'encrypted-restart-thread', browserId = 'encrypted-restart-browser', conversationId = crypto.randomUUID();
+  let launches = 0;
+  const make = () => new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)), secureStore,
+    nativeTunnelFactory: () => { launches++; throw new Error('Restart must not start an action transport'); }, getContext: id => ({ threadId: id, workspacePath: directory }) });
+  let manager = make(); await manager.init(); const setup = await manager.start({ threadId });
+  await manager.bridge.pair({ version: 1, extensionId: 'a'.repeat(32), browserId });
+  await manager.bridge.reportTabs({ browserId, tabs: [{ id: 1, url: `https://chatgpt.com/c/${conversationId}` }] });
+  const binding = await manager.bridge.bind({ browserId, tabId: 1, conversationId, threadId, workspacePath: directory });
+  await manager.close();
+  assert.equal(fs.existsSync(vaultFile), true);
+  const disk = fs.readFileSync(vaultFile, 'utf8');
+  assert.equal(disk.includes(setup.pairingUrl.split('#')[1]), false); assert.equal(disk.includes(conversationId), false); assert.equal(disk.includes(browserId), false);
+  manager = make(); await manager.init();
+  assert.equal(manager.bridge.address, setup.pairingUrl.split('/#')[0]); assert.deepEqual(manager.bridge.view().binding, binding);
+  assert.equal(manager.view().status, 'observing'); assert.equal(launches, 0);
+  await manager.disconnect();
+  manager = make(); await manager.init(); assert.equal(manager.bridge, null); assert.equal(launches, 0); await manager.close();
 });

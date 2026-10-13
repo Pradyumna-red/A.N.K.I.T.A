@@ -157,7 +157,7 @@ function usableContent(content) {
 }
 
 /** Discard malformed/orphan tool messages from interrupted saved sessions. */
-export function sanitizeMessages(messages) {
+export function sanitizeMessages(messages, { metadata = () => ({}) } = {}) {
   if (!Array.isArray(messages)) throw new Error('Session messages must be an array.');
   const out = [];
   for (let i = 0; i < messages.length; i++) {
@@ -184,7 +184,7 @@ export function sanitizeMessages(messages) {
         out.push(...replies.map(r => ({ role: 'tool', tool_call_id: r.tool_call_id, content: capOutput(r.content) })));
       } else if (asText) out.push({ role: 'assistant', content: asText + '\n[Incomplete tool calls removed from restored session.]' });
       i = j - 1;
-    } else if (content !== null) out.push({ role: m.role, content });
+    } else if (content !== null) out.push({ ...metadata(m), role: m.role, content });
   }
   return out;
 }

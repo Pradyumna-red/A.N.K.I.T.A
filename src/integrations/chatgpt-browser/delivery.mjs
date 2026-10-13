@@ -1,4 +1,4 @@
-import { OPERATION_OUTCOMES, sameOperationBinding } from './operation-store.mjs';
+import { OPERATION_OUTCOMES, STOP_PHASES, sameOperationBinding } from './operation-store.mjs';
 import { publicReply } from './observations.mjs';
 
 /** Host-side delivery custody; only a durable first dispatch can authorize a browser click. */
@@ -40,5 +40,22 @@ export class BrowserDelivery {
     this.onEvent({ type: 'progress', operationId: id, binding, progress }); return true;
   }
   recover(binding) { return this.store.recover(binding); }
+  async block(binding, reason) {
+    for (const row of await this.store.block(binding, reason)) this.onEvent({ type: 'blocked', operationId: row.id, binding, reason });
+  }
   stop(binding) { return this.store.stop(binding); }
+  async pollStop(binding) {
+    const command = await this.store.stopCommand(binding);
+    return command?.phase === STOP_PHASES.pending ? command : null;
+  }
+  async stopReadback(binding) {
+    const command = await this.store.stopCommand(binding);
+    return command && [STOP_PHASES.dispatched, STOP_PHASES.uncertain].includes(command.phase) ? command : null;
+  }
+  authorizeStop(id, binding, witness) { return this.store.authorizeStop(id, binding, witness); }
+  async observeStop(id, binding, value) {
+    const fresh = await this.store.settleStop(id, binding, value);
+    if (fresh) this.onEvent({ type: value.confirmed === true ? 'stop-confirmed' : 'stop-uncertain', binding });
+    return fresh;
+  }
 }

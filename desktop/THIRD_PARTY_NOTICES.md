@@ -1,5 +1,22 @@
 # Third-party notices
 
+## Chat On Steroids
+
+The focused ChatGPT browser readers and native composer delivery adapt MIT-licensed
+software from Chat On Steroids. The full license and source pin are distributed in
+`vendor/chat-on-steroids/LICENSE` and `vendor/chat-on-steroids/source.json`. ANKITA
+does not depend on a running CoS app or its saved credentials.
+
+## OpenAI Secure MCP Tunnel client
+
+Windows x64 packages include the official OpenAI tunnel client and its forwarding
+helper, pinned by `vendor/openai-tunnel/source.json`. The tunnel client is licensed
+under Apache-2.0. Its complete publisher LICENSE, NOTICE, third-party license list,
+forwarder manifest and SPDX inventory are included beside the binaries in
+`resources/native-tunnel/win32-x64`. Publisher helper bytes are kept intact during
+ANKITA code signing. Independent vulnerability scanning was unavailable during
+this integration's preparation; matching checksums establish provenance only.
+
 ANKITA's companion includes software adapted from Coucou's Windows animation,
 mascot engine, layout and view helpers. The MIT software license applies to
 those adaptations. Coucou's separate artwork and audio license is not included:

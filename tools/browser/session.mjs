@@ -23,7 +23,8 @@ const VIEW_REQUEST_TIMEOUT_MS = 1800; // Milliseconds for the outer preview requ
 
 /** One process-wide browser session. Calls are serialized so tab selection and refs cannot race. */
 export class BrowserSessionManager {
-  constructor({ store = new BrowserPluginStore().load(), isolatedFactory = options => new PlaywrightBrowserAdapter(options), chromeFactory = (mcp, options) => new ChromeBrowserAdapter(mcp, options), onEvent = () => {}, onResult = () => {}, credentials = null, scopeOptions = null, chromeQueue = { tail: Promise.resolve() } } = {}) {
+  constructor({ store = new BrowserPluginStore().load(), isolatedFactory = options => new PlaywrightBrowserAdapter(options), chromeFactory = (mcp, options) => new ChromeBrowserAdapter(mcp, options), onEvent = () => {}, onResult = () => {}, credentials = null, scopeOptions = null, chromeQueue = { tail: Promise.resolve() }, protectedPage = null } = {}) {
+    this.protectedPage = protectedPage;
     this.scopeOptions = scopeOptions;
     this.scopes = new Map();
     this.chromeQueue = chromeQueue;
@@ -52,7 +53,7 @@ export class BrowserSessionManager {
   createScope(scope, options = {}) {
     if (this.scopes.has(scope)) return this.scopes.get(scope);
     const child = new BrowserSessionManager({ store: this.store, credentials: this.credentials,
-      isolatedFactory: this.isolatedFactory, chromeFactory: this.chromeFactory, chromeQueue: this.chromeQueue,
+      isolatedFactory: this.isolatedFactory, chromeFactory: this.chromeFactory, chromeQueue: this.chromeQueue, protectedPage: this.protectedPage,
       scopeOptions: { ...options, scope, ownedTabs: true }, onEvent: state => this.onEvent(state, scope), onResult: result => this.onResult(result, scope) });
     this.scopes.set(scope, child);
     return child;
@@ -174,7 +175,8 @@ export class BrowserSessionManager {
     if (!settings.enabled) throw new Error(`Enable ${mode === 'local' ? 'Chrome local' : 'Playwright Browser'} in Plugins → By Ankita first`);
     let adapter = this.adapters.get(mode);
     if (!adapter) {
-      adapter = mode === 'isolated' ? this.isolatedFactory(this.scopeOptions || undefined) : this.chromeFactory(ctx.mcp, this.scopeOptions || undefined);
+      const options = { ...this.scopeOptions, protectedPage: this.protectedPage };
+      adapter = mode === 'isolated' ? this.isolatedFactory(options) : this.chromeFactory(ctx.mcp, options);
       this.adapters.set(mode, adapter);
     }
     const needsLoginOrigin = action === 'login' && !args.website && !args.url;

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createCompanionBridge } from '../../services/chatgpt-bridge/server.mjs';
 import { RequestOwners } from '../../src/integrations/chatgpt-browser/request-owners.mjs';
 import { observeBoundTab, trustedPopup } from '../../desktop/chatgpt-companion/background.mjs';
-import { companionManifest } from '../../services/chatgpt-bridge/config.mjs';
+import { companionManifest, OBSERVATION_MAX_AGE_MS } from '../../services/chatgpt-bridge/config.mjs';
 import { BrowserOperationStore } from '../../src/integrations/chatgpt-browser/operation-store.mjs';
 import { BrowserDelivery } from '../../src/integrations/chatgpt-browser/delivery.mjs';
 
@@ -40,6 +40,40 @@ test('two identical tab titles bind only the explicitly selected existing conver
   } finally { await bridge.close(); }
 });
 
+test('host renewal keeps the selected conversation and requires fresh observation with a new epoch', async () => {
+  const bridge = await paired();
+  try {
+    const original = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    const poll = await bridge.poll(); await bridge.observe({ binding: original, nonce: poll.nonce, snapshot: { ...snapshot, conversationId } });
+    await assert.rejects(bridge.renewBinding({ ...original, threadId: 'foreign-thread' }), /binding|owner/i);
+    const renewed = await bridge.renewBinding(original);
+    assert.notEqual(renewed.epoch, original.epoch); assert.notEqual(renewed.leaseId, original.leaseId);
+    assert.equal(renewed.tabId, original.tabId); assert.equal(renewed.conversationId, original.conversationId);
+    assert.equal(bridge.view().status, 'observing');
+    assert.equal(await bridge.observe({ binding: original, nonce: poll.nonce, snapshot: { ...snapshot, conversationId } }), false);
+  } finally { await bridge.close(); }
+});
+
+test('restored paired custody reuses its owned loopback address and cannot authorize before a fresh observation', async () => {
+  let saved;
+  const store = { load: async () => saved, save: async state => { saved = structuredClone(state); } };
+  let bridge = await createCompanionBridge({ config, secrets, store });
+  await bridge.pair({ extensionId, version: 1, browserId });
+  await bridge.reportTabs({ browserId, tabs: [{ id: 1, url: `https://chatgpt.com/c/${conversationId}` }] });
+  const original = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+  const address = bridge.address; await bridge.close();
+  bridge = await createCompanionBridge({ config, secrets, store });
+  try {
+    assert.equal(bridge.address, address); assert.deepEqual(bridge.view().binding, original);
+    assert.equal(bridge.view().status, 'observing');
+    await assert.rejects(bridge.resolveRequestOwner({ leaseId: original.leaseId, requestId: 'old-native' }), /unavailable/);
+    await bridge.reportTabs({ browserId, tabs: [{ id: 1, url: `https://chatgpt.com/c/${conversationId}` }] });
+    const poll = await bridge.poll();
+    assert.equal(await bridge.observe({ binding: original, nonce: poll.nonce, snapshot: { ...snapshot, conversationId } }), true);
+    assert.equal(bridge.view().status, 'ready');
+  } finally { await bridge.close(); }
+});
+
 test('forged, wrong-tab, stale-nonce and navigated observations cannot authorize ownership', async () => {
   const bridge = await paired();
   try {
@@ -69,6 +103,38 @@ test('incompatible pairing and explicit disconnect remain stopped on reconnect',
   } finally { await bridge.close(); }
 });
 
+test('an exactly owned follow-up waits for a fresh same-binding observation instead of failing during a transient refresh gap', async t => {
+  const bridge = await paired();
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    for (const requestIds of [[], ['owned-follow-up']]) {
+      const poll = await bridge.poll(); await bridge.observe({ binding, nonce: poll.nonce, snapshot: { ...snapshot, conversationId, requestIds } });
+    }
+    let now = Date.now(); t.mock.method(Date, 'now', () => now); now += OBSERVATION_MAX_AGE_MS + 1;
+    assert.equal(bridge.view().status, 'observing');
+    let settled = false;
+    const waiting = bridge.resolveRequestOwner({ leaseId: binding.leaseId, requestId: 'owned-follow-up' });
+    void waiting.then(() => { settled = true; }, () => { settled = true; });
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(settled, false, 'stale page evidence waits; it never authorizes an action');
+    const poll = await bridge.poll(); await bridge.observe({ binding, nonce: poll.nonce, snapshot: { ...snapshot, conversationId, requestIds: ['owned-follow-up'] } });
+    assert.deepEqual(await waiting, binding); assert.equal(bridge.view().status, 'ready');
+  } finally { await bridge.close(); }
+});
+
+test('disconnect cancels a follow-up waiting for fresh page evidence without authorizing it', async t => {
+  const bridge = await paired();
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    for (const requestIds of [[], ['owned-disconnect']]) {
+      const poll = await bridge.poll(); await bridge.observe({ binding, nonce: poll.nonce, snapshot: { ...snapshot, conversationId, requestIds } });
+    }
+    const now = Date.now() + OBSERVATION_MAX_AGE_MS + 1; t.mock.method(Date, 'now', () => now);
+    const waiting = bridge.resolveRequestOwner({ leaseId: binding.leaseId, requestId: 'owned-disconnect' }); void waiting.catch(() => {});
+    await new Promise(resolve => setImmediate(resolve)); await bridge.disconnect();
+    await assert.rejects(waiting, /disconnect|binding|unavailable/i);
+  } finally { await bridge.close(); }
+});
+
 test('an unavailable page observation is reported without asserting the user is logged out or admitting tools', async () => {
   const bridge = await paired();
   try {
@@ -80,6 +146,19 @@ test('an unavailable page observation is reported without asserting the user is 
     assert.equal(bridge.view().status, 'page-unavailable');
     assert.equal(bridge.view().observationReason, 'composer-unavailable');
     await assert.rejects(bridge.resolveRequestOwner({ leaseId: binding.leaseId, requestId: 'unproven' }), /unavailable/i);
+  } finally { await bridge.close(); }
+});
+
+test('a visible observed quota blocks native ownership without changing account, model or conversation', async () => {
+  const bridge = await paired({ modelMode: 'current' });
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    const poll = await bridge.poll();
+    await bridge.observe({ binding, nonce: poll.nonce, snapshot: { ...snapshot, conversationId, blockedReason: 'quota' } });
+    assert.equal(bridge.view().status, 'blocked'); assert.equal(bridge.view().blockedReason, 'quota');
+    assert.deepEqual(bridge.view().binding, binding);
+    await assert.rejects(bridge.resolveRequestOwner({ leaseId: binding.leaseId, requestId: 'native-owned' }), /unavailable/);
+    assert.deepEqual((await bridge.listTabs()).filter(tab => tab.bound).map(tab => tab.id), [1]);
   } finally { await bridge.close(); }
 });
 
@@ -165,6 +244,28 @@ test('actual HTTP command authorization spends its durable Send once and exact o
     await bridge.observe({ binding, nonce: next.nonce, snapshot: { ...snapshot, conversationId, delivery: { operationId: input.id, receipt,
       answer: { ...receipt, assistantMessageId: crypto.randomUUID(), role: 'assistant', channel: 'final', end_turn: true, status: 'finished_successfully', text: 'unique HTTP answer' } } } });
     assert.equal((await store.get(input.id)).outcome, 'completed');
+    assert.equal((await bridge.poll()).operation, null);
+  } finally { await bridge.close(); }
+});
+
+test('the bridge offers one owned Stop and then observation only until its native terminal acknowledgement', async () => {
+  const store = new BrowserOperationStore({ directory: path.join(workspace, crypto.randomUUID()) }), delivery = new BrowserDelivery({ store });
+  const bridge = await paired({ modelMode: 'current' }, delivery);
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    const priming = await bridge.poll(); await bridge.observe({ binding, nonce: priming.nonce, snapshot: { ...snapshot, conversationId } });
+    const operation = { id: crypto.randomUUID(), binding, kind: 'send', text: 'owned stopped question' };
+    await bridge.enqueue(operation); await bridge.poll(); await delivery.authorize(operation.id, binding, { baselineUserIds: [] });
+    const receipt = { conversationId, userMessageId: crypto.randomUUID(), turnId: crypto.randomUUID() };
+    await delivery.receipt(operation.id, binding, receipt); await delivery.stop(binding);
+    const command = await bridge.poll();
+    assert.ok(command.stopOperation, 'the paired actor needs an owned Stop command, independent of normal Send');
+    const authorized = await bridge.authorize({ kind: 'stop', operationId: command.stopOperation.id, binding, witness: receipt });
+    assert.equal(authorized.allowed, true);
+    assert.equal((await bridge.authorize({ kind: 'stop', operationId: command.stopOperation.id, binding, witness: receipt })).allowed, false);
+    const observed = await bridge.poll(); assert.equal(observed.stopOperation, null); assert.equal(observed.stopReadback.phase, 'dispatched');
+    await bridge.acknowledge({ kind: 'stop', operationId: command.stopOperation.id, binding, receipt, confirmed: true });
+    assert.equal((await store.stopCommand(binding)).phase, 'confirmed');
     assert.equal((await bridge.poll()).operation, null);
   } finally { await bridge.close(); }
 });

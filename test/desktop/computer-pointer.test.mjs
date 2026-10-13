@@ -183,6 +183,26 @@ test('a generic MCP reconnect reapplies the hidden preference to its new cursor 
   assert.equal((await service.overview()).pointerEnabled, false);
 });
 
+test('explicit computer connection initializes strict discovery without a session argument while retaining its separate owned pointer', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-pointer-implicit-'));
+  const manager = new McpManager();
+  const service = new DesktopComputerUse({ mcp: manager, mcpFile: path.join(directory, 'mcp.json'), platform: 'win32',
+    discover: async () => ({ command: process.execPath, args: [fileURLToPath(new URL('../../scripts/fixtures/computer-mcp.mjs', import.meta.url))], version: 'fixture' }) });
+  const connect = manager.connect.bind(manager);
+  manager.connect = options => connect({ ...options, env: { ANKITA_TEST_ENDED_IMPLICIT: '1' } });
+  t.after(async () => { await service.close(); await manager.closeAll(); fs.rmSync(directory, { recursive: true, force: true }); });
+  await service.connect();
+  const discovery = await manager.callToolResult('mcp__ankita-computer__list_windows', {});
+  assert.equal(discovery.isError, false, discovery.text);
+  const record = manager.servers.get('ankita-computer');
+  assert.equal(record.computerPointerSession, service.pointerSession);
+  assert.notEqual(service.pointerSession, `fixture-${record.client.child.pid}`, 'the implicit discovery lifecycle must not replace the uniquely owned pointer');
+  await record.client.callTool('end_session', { session: service.pointerSession });
+  await service.preparePointer(record);
+  const stopped = await record.client.callTool('get_agent_cursor_state', { session: service.pointerSession });
+  assert.equal(stopped.raw.structuredContent.active, false, 'ordinary preparation must not revive a stopped existing pointer session');
+});
+
 test('Stop during cursor setup waits for teardown without surfacing a transport-close race', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-pointer-cancel-'));
   const manager = new McpManager();

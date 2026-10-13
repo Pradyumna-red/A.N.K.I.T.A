@@ -14,9 +14,12 @@ import { TIER_DENY } from '../integrations/mcp-tiers.mjs';
 import { COMPUTER_MCP_ID, COMPUTER_DIRECT_CONFIG, COMPUTER_POINTER_SESSION, COMPUTER_TOOLS, computerObservationTargets, formatComputerTargets } from '../integrations/computer-use.mjs';
 import { validMcpImage, MAX_MCP_IMAGES_PER_TURN } from '../integrations/mcp-images.mjs';
 import { JOB_EXECUTION_COMPLETE } from '../automation/job-policy.mjs';
-import { TOOL_RESULT_MODE } from '../integrations/chatgpt-browser/protocol.mjs';
+import { killTree } from '../../tools/shared/_job-tree.mjs';
+import { waitForExit } from '../../tools/shared/_jobs.mjs';
+import { TOOL_RESULT_MODE, NATIVE_TOOL_SURFACES } from '../integrations/chatgpt-browser/protocol.mjs';
 import { c, preview, short, clip } from './ui.mjs';
 import { renderDiff } from '../../tools/shared/_diff.mjs';
+import { name as TOOL_DISCOVERY_NAME } from '../../tools/find-tools.mjs';
 
 export const TOOL_UI = { ...c, preview, short, clip };
 TOOL_UI.diff = (oldText, newText, opts = {}) => renderDiff(oldText, newText, { ui: TOOL_UI, ...opts });
@@ -32,8 +35,14 @@ const DENIED = 'The user denied permission for this action. Do not retry it; ask
 const MCP_PREFIX = 'mcp__'; // Existing namespaced registry contract.
 const MCP_MODE = TOOL_RESULT_MODE.mcp;
 const READ_ONLY_DENIAL = 'Error: this host is read-only.';
+const JOB_STOP_WAIT_MS = 5000; // Milliseconds/owned job termination before native Stop acknowledges completion.
+const stoppingJobs = new WeakMap(); // Shared workflow hosts terminate each owned child only once concurrently.
 const automaticApproval = ctx => ctx.autoApprove === undefined ? ctx.config.autoApprove === true : ctx.autoApprove === true; // Current host policy wins over an older config snapshot.
 const textResult = text => ({ content: [{ type: 'text', text: String(text) }], isError: isToolFailure(String(text)) || text === CANCELLED || text === DENIED });
+function deniedTier(decision, mcp, name) {
+  mcp.recordTierDecision?.(name, 'denied');
+  return textResult(`Error: ${decision.label} is blocked by the approval tiers. Do not retry it; ask the user whether the tier rule should change.`);
+}
 
 /** Execution only: no model client, conversation loop or API history. Context is host-owned.
  * A context getter lets an API Agent share its current request counters after project/Stop changes.
@@ -47,20 +56,57 @@ export class ToolHost {
   }
 
   currentContext() { return typeof this.context === 'function' ? this.context() : this.context; }
-  specs() {
+  async approve(name, detail, signal) {
+    if (signal.aborted) return false;
+    let aborted;
+    const cancellation = new Promise(resolve => { aborted = () => resolve(false); });
+    signal.addEventListener('abort', aborted, { once: true });
+    try { return await Promise.race([Promise.resolve().then(() => signal.aborted ? false : this.authorize?.(name, detail)), cancellation]); }
+    finally { signal.removeEventListener('abort', aborted); }
+  }
+  specs(surface = NATIVE_TOOL_SURFACES.core) {
     const ctx = this.currentContext();
-    const local = specs.filter(spec => (!ctx.allowedTools || ctx.allowedTools.has(spec.function.name)) &&
+    if (!Object.values(NATIVE_TOOL_SURFACES).includes(surface)) throw new Error('Unknown native tool surface');
+    const local = specs.filter(spec => (spec.function.name === TOOL_DISCOVERY_NAME || (surface !== NATIVE_TOOL_SURFACES.plugins &&
+      (surface === NATIVE_TOOL_SURFACES.desktop ? spec.function.name === 'browser' : spec.function.name !== 'browser'))) &&
+      (!ctx.allowedTools || ctx.allowedTools.has(spec.function.name)) &&
       (!ctx.readOnly || isReadOnly(spec.function.name, {}, ctx))).map(spec => ({
       name: spec.function.name, description: spec.function.description, inputSchema: spec.function.parameters,
       annotations: { readOnlyHint: isReadOnly(spec.function.name, {}, ctx) },
     }));
-    // A read-only proof surface deliberately publishes only local audited read tools.
-    return local;
+    if (surface === NATIVE_TOOL_SURFACES.core) return local;
+    const manager = ctx.mcp ?? this.mcp;
+    const native = (manager?.specs?.() ?? []).flatMap(spec => {
+      const name = spec.function.name, parsed = parseToolName(name), found = manager.findTool(name);
+      if (!found || (ctx.allowedTools && !ctx.allowedTools.has(name)) || manager.tierFor?.(name, {})?.tier === TIER_DENY) return [];
+      if (ctx.readOnly && found.tool.annotations?.readOnlyHint !== true) return [];
+      if (isBrowserMcpTool(name, [{ id: parsed?.serverId, tools: found.record?.tools ?? [] }])) return []; // Normal browser operations stay under their managed adapter.
+      const computer = parsed?.serverId === COMPUTER_MCP_ID;
+      if (computer !== (surface === NATIVE_TOOL_SURFACES.desktop) || (computer && !COMPUTER_TOOLS.includes(parsed.toolName))) return [];
+      return [{ name, description: spec.function.description, inputSchema: spec.function.parameters, annotations: found.tool.annotations ?? {} }];
+    });
+    return [...local, ...native];
   }
 
-  async cancel() { this.controller.abort(); }
+  async cancel() {
+    this.controller.abort();
+    let ctx = this.executedContext;
+    if (!ctx) { try { ctx = this.currentContext(); } catch { ctx = null; } }
+    await Promise.all([...(ctx?.state?.jobs?.values() ?? [])].filter(job => !job.done).map(job => {
+      if (!stoppingJobs.has(job.child)) {
+        job.stopped = true;
+        const stopping = (async () => {
+          await killTree(job.child); await waitForExit(job, JOB_STOP_WAIT_MS);
+          if (!job.done) throw new Error('Owned command termination was not confirmed');
+        })();
+        stoppingJobs.set(job.child, stopping);
+        void stopping.finally(() => stoppingJobs.delete(job.child)).catch(() => {});
+      }
+      return stoppingJobs.get(job.child);
+    }));
+  }
 
-  async execute(call, { signal, resultMode = MCP_MODE } = {}) {
+  async execute(call, { signal, resultMode = MCP_MODE, surface = null } = {}) {
     const base = this.currentContext();
     const config = base.config ?? {};
     const state = base.executionState ?? this.requestState;
@@ -70,8 +116,13 @@ export class ToolHost {
     const ctx = { ...base, config, state: base.state ?? { activatedTools: new Set() }, signal: combined, ui: base.ui ?? TOOL_UI,
       width: base.width ?? process.stdout.columns ?? DEFAULT_OUTPUT_COLUMNS,
       browserCallId: call.id, mcp: base.mcp ?? this.mcp };
+    this.executedContext = ctx;
     const budget = config.maxToolChars > 0 ? config.maxToolChars : DEFAULT_TOOL_OUTPUT_BYTES;
     if (combined.aborted) return textResult(CANCELLED);
+    if (surface) {
+      ctx.toolAvailability = new Set(this.specs(surface).map(spec => spec.name)); // Discovery and execution share the same host-only native interface boundary.
+      if (!ctx.toolAvailability.has(name)) return textResult('Error: this tool is unavailable on the current native surface.');
+    }
     if (!args || typeof args !== 'object' || Array.isArray(args)) return textResult('Error: arguments must be an object.');
     if (!focusAllows(ctx.state, name)) return textResult('Error: This tool is outside the current tool focus. Use find_tools with scope="general" to explicitly change methods before executing it.');
     if (ctx.allowedTools && !ctx.allowedTools.has(name)) return textResult(ctx.backgroundToolScope
@@ -99,17 +150,22 @@ export class ToolHost {
     if (!found) return textResult(`Error: no connected MCP server provides "${name}".`);
     if (ctx.readOnly && found.tool?.annotations?.readOnlyHint !== true) return textResult(READ_ONLY_DENIAL);
     const direct = ctx.config[COMPUTER_DIRECT_CONFIG] === true && native?.serverId === COMPUTER_MCP_ID && COMPUTER_TOOLS.includes(native.toolName);
+    if (direct && ctx.beforeComputerAction) {
+      const preliminary = mcp.tierFor?.(name, args);
+      if (preliminary?.tier === TIER_DENY) return deniedTier(preliminary, mcp, name);
+      await ctx.beforeComputerAction(found.record, { signal: ctx.signal });
+    }
     const pointer = found.record?.[COMPUTER_POINTER_SESSION];
     if (direct && pointer && found.tool?.inputSchema?.properties?.session) args = { ...args, session: pointer };
     const decision = mcp.tierFor?.(name, args);
     if (decision?.tier === TIER_DENY) {
-      mcp.recordTierDecision?.(name, 'denied');
-      return textResult(`Error: ${decision.label} is blocked by the approval tiers. Do not retry it; ask the user whether the tier rule should change.`);
+      return deniedTier(decision, mcp, name);
     }
     if (direct) mcp.recordTierDecision?.(name, 'allowed');
     if (!direct && mcp.needsApproval(name, args) && !automaticApproval(ctx)) {
-      const ok = await this.authorize?.(name, mcp.approvalDetail(name, args));
+      const ok = await this.approve(name, mcp.approvalDetail(name, args), ctx.signal);
       mcp.recordTierDecision?.(name, ok === true ? 'allowed' : 'denied');
+      if (ctx.signal.aborted) return textResult(CANCELLED);
       if (ok !== true) return textResult(DENIED);
     }
     if (ctx.signal.aborted) return textResult(CANCELLED);
@@ -158,7 +214,11 @@ export class ToolHost {
       const preview = tool.approval ? await tool.approval(args, ctx, ctx.ui) : null;
       const detail = redactText(typeof preview === 'string' && preview.trim() ? preview :
         `${tool.name}\n\n${JSON.stringify(displayArgs(tool.name, args, ctx), null, 2)}`, { secrets: configuredSecrets(process.env, ctx.config) });
-      if (!automatic && await this.authorize?.(tool.name, detail) !== true) return textResult(DENIED);
+      if (!automatic) {
+        const ok = await this.approve(tool.name, detail, ctx.signal);
+        if (ctx.signal.aborted) return textResult(CANCELLED);
+        if (ok !== true) return textResult(DENIED);
+      }
     }
     if (ctx.signal.aborted) return textResult(CANCELLED);
     state.activeSkillTools.add(tool.name);

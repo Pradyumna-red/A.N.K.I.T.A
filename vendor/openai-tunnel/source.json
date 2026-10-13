@@ -1,0 +1,17 @@
+{
+  "publisher": "OpenAI",
+  "repository": "https://github.com/openai/tunnel-client",
+  "version": "0.0.16",
+  "license": "Apache-2.0",
+  "targets": {
+    "win32-x64": {
+      "archiveUrl": "https://github.com/openai/tunnel-client/releases/download/v0.0.16/tunnel-client-v0.0.16-windows-amd64.zip",
+      "archiveSha256": "edef7241b0c647fcb30f1a80ff376b6b25c51927960f257a3f01e21b17c2aba6",
+      "filename": "tunnel-client.exe",
+      "sha256": "4226bb74a72388147882881f29f79801b95e285d731a138071812e3aa6766571",
+      "companionFilename": "cloudflared.exe",
+      "companionSha256": "cd0bc49aec24d0d62a37b6e842dad46000f7b401f6167b4cbace4e170819c9a2",
+      "notices": ["LICENSE", "NOTICE", "cloudflared-manifest.json", "tunnel-client-v0.0.16-windows-amd64-licenses.txt", "tunnel-client-v0.0.16-windows-amd64.spdx.json"]
+    }
+  }
+}

@@ -1,5 +1,8 @@
 # Connect the existing Chrome conversation
 
+This document records the earlier read-only feasibility checkpoint. For the
+desktop product's current setup, use [Use your existing ChatGPT chat in ANKITA](guides/chatgpt-browser.md).
+
 This is the read-only attach checkpoint on `codex/chatgpt-browser`. ANKITA's desktop
 ChatGPT provider, sending and actions are not enabled yet. The approved plan requires
 a real native ChatGPT MCP read before those are built. Normal account limits apply.

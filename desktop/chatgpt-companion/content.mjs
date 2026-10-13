@@ -14,7 +14,8 @@ export function readSelectedPage(conversationId, config, binding, readback) {
   const deliveryReader = globalThis[config.deliveryGlobal];
   if (readback) deliveryReader?.watch(readback, config);
   const delivery = deliveryReader?.snapshot(binding, config) ?? null;
-  const unavailable = (reason, pageReady = false) => ({ ...empty, conversationId, accountReady: pageReady, requestIds: projectIds(), requestEvidence: evidence(), delivery, observationReason: reason });
+  const blockedReason = deliveryReader?.blocked(binding, config) ?? null;
+  const unavailable = (reason, pageReady = false) => ({ ...empty, conversationId, accountReady: pageReady, requestIds: projectIds(), requestEvidence: evidence(), delivery, blockedReason, observationReason: reason });
   if (!readers) return unavailable(config.observationReasons.readers);
   let pageReady = false;
   try {
@@ -45,6 +46,6 @@ export function readSelectedPage(conversationId, config, binding, readback) {
     const selected = picker.choices.find(choice => choice.bucket === picker.currentBucket);
     return { conversationId, accountReady: true, selectedModel: selected?.id ?? null, selectedEffort: selected?.effort ?? null,
       models: picker.choices.slice(0, config.maxModels).map(choice => ({ id: choice.id, label: choice.label, effort: choice.effort, available: choice.available === true })),
-      requestIds: projectIds(), requestEvidence: evidence(), delivery, observationReason: null };
+      requestIds: projectIds(), requestEvidence: evidence(), delivery, blockedReason, observationReason: null };
   } catch { return unavailable(config.observationReasons.error, pageReady); }
 }

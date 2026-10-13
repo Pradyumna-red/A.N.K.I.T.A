@@ -1,21 +1,20 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { MAX_ID_CHARS, MAX_OPERATION_TEXT_CHARS, MAX_REQUEST_IDS } from '../../../services/chatgpt-bridge/config.mjs';
 import { acceptedReceipt, completedReceipt } from './observations.mjs';
+import { DurableProfileState } from './durable-profile.mjs';
+import { BROWSER_BINDING_FIELDS as BINDING_FIELDS, sameBrowserBinding } from './protocol.mjs';
+import { validateBrowserUploads, uploadReceipt, attachmentMetadata } from './attachments.mjs';
 
 const STORE_VERSION = 1; // Durable schema version; unsupported state must never reset a spent Send.
 const STORE_FILE = 'operations.json'; // Profile-local file name; caller supplies the discovered directory.
-const MAX_FILE_BYTES = 16 * 1024 * 1024; // Bytes/operation ledger; bounded local parsing.
 const MAX_OPERATIONS = 500; // Retained operations; refuse new work before losing unsettled receipts.
 const MAX_STOPPED_EPOCHS = 1000; // Cancellation fences; fail closed instead of forgetting old Stop intent.
+export const STOP_PHASES = Object.freeze({ pending: 'pending', dispatched: 'dispatched', confirmed: 'confirmed', uncertain: 'uncertain' }); // Durable remote Stop custody, separate from the cancelled Send.
 export const OPERATION_OUTCOMES = Object.freeze({ queued: 'queued', claimed: 'claimed', dispatched: 'dispatched', accepted: 'accepted',
   completed: 'completed', stopped: 'stopped', rejected: 'rejected', uncertain: 'uncertain' });
 const TERMINAL = [OPERATION_OUTCOMES.completed, OPERATION_OUTCOMES.stopped, OPERATION_OUTCOMES.rejected];
-const BINDING_FIELDS = ['leaseId', 'epoch', 'tabId', 'conversationId', 'browserId', 'threadId', 'workspacePath'];
-const locks = new Map(); // One serialized owner/file even when two host components open the same ledger.
 const opaque = value => typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_CHARS;
-export const sameOperationBinding = (a, b) => Boolean(a && b && BINDING_FIELDS.every(key => a[key] === b[key]));
+export const sameOperationBinding = sameBrowserBinding;
 function bindingValue(value) {
   if (!value || !Number.isSafeInteger(value.tabId) || BINDING_FIELDS.filter(key => key !== 'tabId' && key !== 'workspacePath').some(key => !opaque(value[key])) ||
       typeof value.workspacePath !== 'string' || !value.workspacePath) throw new Error('Invalid operation binding');
@@ -24,6 +23,7 @@ function bindingValue(value) {
 function immutable(value) {
   if (!opaque(value?.id) || value.kind !== 'send' || typeof value.text !== 'string' || !value.text.trim() || value.text.length > MAX_OPERATION_TEXT_CHARS) throw new Error('Invalid browser operation');
   return { id: value.id, binding: bindingValue(value.binding), kind: value.kind, text: value.text,
+    ...(value.attachments?.length ? { attachments: validateBrowserUploads(value.attachments) } : {}),
     ...(value.modelId !== undefined ? { modelId: value.modelId } : {}) };
 }
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -33,38 +33,24 @@ const receiptEqual = (a, b) => Boolean(a && b && ['conversationId', 'userMessage
 /** Atomic host-owned Send ledger. Recovery reports custody and never submits browser work. */
 export class BrowserOperationStore {
   constructor({ directory } = {}) {
-    if (typeof directory !== 'string' || !path.isAbsolute(directory)) throw new TypeError('An explicit absolute operation directory is required');
-    fs.mkdirSync(directory, { recursive: true }); this.directory = fs.realpathSync(directory); this.file = path.join(this.directory, STORE_FILE);
+    this.journal = new DurableProfileState({ directory, filename: STORE_FILE,
+      initial: () => ({ version: STORE_VERSION, operations: [], stoppedEpochs: [], stopRequests: [] }) });
+    this.directory = this.journal.directory; this.file = this.journal.file;
   }
-  #load() {
-    let text;
-    try { if (fs.statSync(this.file).size > MAX_FILE_BYTES) throw new Error('Operation state exceeds byte limit'); text = fs.readFileSync(this.file, 'utf8'); }
-    catch (error) { if (error.code === 'ENOENT') return { version: STORE_VERSION, operations: [], stoppedEpochs: [] }; throw error; }
-    const state = JSON.parse(text);
+  #validate(state) {
+    state.stopRequests ??= []; // Additive schema migration; never resets an old Send or cancellation fence.
     if (state.version !== STORE_VERSION || !Array.isArray(state.operations) || state.operations.length > MAX_OPERATIONS ||
         !Array.isArray(state.stoppedEpochs) || state.stoppedEpochs.length > MAX_STOPPED_EPOCHS || state.stoppedEpochs.some(key => typeof key !== 'string') ||
         new Set(state.operations.map(row => row.id)).size !== state.operations.length) throw new Error('Unsupported or corrupt operation state version');
     for (const row of state.operations) if (hash(immutable(row)) !== row.argumentsHash || !Object.values(OPERATION_OUTCOMES).includes(row.outcome)) throw new Error('Corrupt operation state');
+    if (!Array.isArray(state.stopRequests) || state.stopRequests.length > MAX_STOPPED_EPOCHS ||
+        new Set(state.stopRequests.map(row => row.id)).size !== state.stopRequests.length || state.stopRequests.some(row =>
+          !opaque(row.id) || !opaque(row.targetId) || !Object.values(STOP_PHASES).includes(row.phase) ||
+          !state.operations.some(target => target.id === row.targetId && sameOperationBinding(target.binding, row.binding)))) throw new Error('Corrupt Stop state');
     return state;
   }
-  #write(state) {
-    const text = JSON.stringify(state);
-    if (Buffer.byteLength(text) > MAX_FILE_BYTES) throw new Error('Operation state exceeds byte limit');
-    const temp = path.join(this.directory, `.${STORE_FILE}.${randomUUID()}.tmp`);
-    let fd;
-    try {
-      fd = fs.openSync(temp, 'wx', 0o600); fs.writeFileSync(fd, text); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
-      fs.renameSync(temp, this.file);
-    } finally { if (fd !== undefined) fs.closeSync(fd); try { fs.unlinkSync(temp); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
-  }
   #run(action, write = false) {
-    const task = (locks.get(this.file) ?? Promise.resolve()).catch(() => {}).then(() => {
-      const state = this.#load(), result = action(state);
-      if (write) this.#write(state);
-      return structuredClone(result);
-    });
-    locks.set(this.file, task);
-    return task.finally(() => { if (locks.get(this.file) === task) locks.delete(this.file); });
+    return this.journal.run(state => action(this.#validate(state)), write);
   }
   #owned(state, id, binding) {
     const row = state.operations.find(row => row.id === id);
@@ -98,6 +84,8 @@ export class BrowserOperationStore {
       if (witness !== undefined) {
         if (!Array.isArray(witness.baselineUserIds) || witness.baselineUserIds.length > MAX_REQUEST_IDS || witness.baselineUserIds.some(id => !opaque(id))) throw new Error('Invalid native Send baseline');
         row.baselineUserIds = [...new Set(witness.baselineUserIds)];
+        if (row.attachments?.length && !uploadReceipt(row.attachments, witness.attachments)) return false;
+        if (row.attachments?.length) row.uploadReceipt = attachmentMetadata(row.attachments);
       }
       row.outcome = OPERATION_OUTCOMES.dispatched; row.dispatchedAt = Date.now(); return true;
     }, true);
@@ -141,7 +129,27 @@ export class BrowserOperationStore {
   recover(binding) {
     return this.#run(state => {
       const rows = state.operations.filter(row => sameOperationBinding(row.binding, binding));
-      for (const row of rows) if ([OPERATION_OUTCOMES.claimed, OPERATION_OUTCOMES.dispatched].includes(row.outcome)) row.outcome = OPERATION_OUTCOMES.uncertain;
+      for (const row of rows) {
+        if (row.outcome === OPERATION_OUTCOMES.queued) row.outcome = OPERATION_OUTCOMES.rejected;
+        if ([OPERATION_OUTCOMES.claimed, OPERATION_OUTCOMES.dispatched].includes(row.outcome)) row.outcome = OPERATION_OUTCOMES.uncertain;
+      }
+      return rows;
+    }, true);
+  }
+  consume(id, binding) {
+    return this.#run(state => {
+      const row = this.#owned(state, id, binding);
+      if (row.outcome !== OPERATION_OUTCOMES.completed) throw new Error('Only a completed browser reply can be imported');
+      row.consumed = true; return true;
+    }, true);
+  }
+  block(binding, reason) {
+    return this.#run(state => {
+      const rows = state.operations.filter(row => sameOperationBinding(row.binding, binding) && !TERMINAL.includes(row.outcome));
+      for (const row of rows) {
+        row.outcome = row.dispatchedAt ? OPERATION_OUTCOMES.uncertain : OPERATION_OUTCOMES.rejected;
+        row.blockedReason = reason;
+      }
       return rows;
     }, true);
   }
@@ -152,8 +160,37 @@ export class BrowserOperationStore {
         if (state.stoppedEpochs.length >= MAX_STOPPED_EPOCHS) throw new Error('Cancellation fence capacity reached');
         state.stoppedEpochs.push(key);
       }
+      const target = state.operations.find(row => sameOperationBinding(row.binding, binding) && !TERMINAL.includes(row.outcome) && row.dispatchedAt);
+      if (target && !state.stopRequests.some(row => sameOperationBinding(row.binding, binding))) {
+        if (state.stopRequests.length >= MAX_STOPPED_EPOCHS) throw new Error('Stop request capacity reached');
+        state.stopRequests.push({ id: randomUUID(), targetId: target.id, binding: bindingValue(binding), phase: STOP_PHASES.pending, createdAt: Date.now() });
+      }
       for (const row of state.operations) if (sameOperationBinding(row.binding, binding) && !TERMINAL.includes(row.outcome)) { row.outcome = OPERATION_OUTCOMES.stopped; row.stoppedAt = Date.now(); }
       return true;
+    }, true);
+  }
+  isStopped(binding) { return this.#run(state => state.stoppedEpochs.includes(epochKey(binding))); }
+  stopCommand(binding) {
+    return this.#run(state => {
+      const row = state.stopRequests.find(stop => sameOperationBinding(stop.binding, binding));
+      return row ? { ...row, target: state.operations.find(operation => operation.id === row.targetId) } : null;
+    });
+  }
+  authorizeStop(id, binding, witness) {
+    return this.#run(state => {
+      const row = state.stopRequests.find(stop => stop.id === id && sameOperationBinding(stop.binding, binding));
+      if (!row || row.phase !== STOP_PHASES.pending || !state.stoppedEpochs.includes(epochKey(binding))) return false;
+      const target = this.#owned(state, row.targetId, binding), receipt = acceptedReceipt(binding, witness);
+      if (!receipt || (target.receipt && !receiptEqual(target.receipt, receipt)) || (!target.receipt && target.baselineUserIds?.includes(receipt.userMessageId))) return false;
+      row.receipt = receipt; row.phase = STOP_PHASES.dispatched; row.dispatchedAt = Date.now(); return true;
+    }, true);
+  }
+  settleStop(id, binding, value) {
+    return this.#run(state => {
+      const row = state.stopRequests.find(stop => stop.id === id && sameOperationBinding(stop.binding, binding));
+      if (!row || ![STOP_PHASES.dispatched, STOP_PHASES.uncertain].includes(row.phase) || !receiptEqual(row.receipt, acceptedReceipt(binding, value?.receipt))) return false;
+      row.phase = value.confirmed === true ? STOP_PHASES.confirmed : STOP_PHASES.uncertain;
+      row.observedAt = Date.now(); return true;
     }, true);
   }
 }

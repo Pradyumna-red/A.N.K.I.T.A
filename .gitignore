@@ -2,6 +2,7 @@
 node_modules/
 desktop/renderer/dist/
 desktop/release/
+desktop/native-tunnel/
 *.log
 
 # Images produced by the image tools; they are user content, not source.

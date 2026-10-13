@@ -17,6 +17,7 @@ import { shutdownFileToolWorkers } from '../../src/tooling/tool-worker.mjs';
 import { CompanionCapture } from './companion-capture.mjs';
 import { CAPTURE_ACTIONS, CAPTURE_EVENT } from '../browser-helper/protocol.mjs';
 import { CHATGPT_CONNECTION_ACTIONS } from '../shared/chatgpt-browser.mjs';
+import { chatgptResourcePaths } from './chatgpt-resources.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const APP_NAME = 'Ankita';
@@ -388,6 +389,7 @@ function createWindow() {
 
   engine = new DesktopEngine({
     safeStorage,
+    chatgptResources: chatgptResourcePaths({ packageRoot: app.getAppPath(), resourcesPath: process.resourcesPath, isPackaged: app.isPackaged }),
     // Composio keyless sign-in opens the system browser from the main process.
     openExternal: url => openExternal(url),
     selectBrowserUpload: async ({ signal }) => {
@@ -544,8 +546,17 @@ ipcMain.handle('engine:invoke', async (event, action, payload) => {
     case 'getDesktopPreferences': return current.getDesktopPreferences();
     case 'saveDesktopSettings': return current.saveDesktopSettings(payload);
     case CHATGPT_CONNECTION_ACTIONS.overview: return current.chatgptBrowser?.view() ?? { status: 'setup-required', selectedModel: null };
+    case CHATGPT_CONNECTION_ACTIONS.resume: return current.resumeBrowser(payload.threadId, payload.operationId);
+    case CHATGPT_CONNECTION_ACTIONS.handoff: {
+      const text = await current.browserHandoff(payload); clipboard.writeText(text); return { copied: true };
+    }
     case CHATGPT_CONNECTION_ACTIONS.start: return current.startChatgptConnection(payload);
-    case CHATGPT_CONNECTION_ACTIONS.disconnect: await current.chatgptBrowser?.close(); current.chatgptBrowser?.changed(); return true;
+    case CHATGPT_CONNECTION_ACTIONS.nativePreferences: return current.chatgptBrowser?.readNativePreferences() ?? { tunnels: {}, savedKeys: [] };
+    case CHATGPT_CONNECTION_ACTIONS.nativeStart:
+      if (!current.chatgptBrowser) throw new Error('Save ChatGPT Browser as your provider first');
+      return current.chatgptBrowser.startNativeTools(payload);
+    case CHATGPT_CONNECTION_ACTIONS.nativeStop: return current.chatgptBrowser?.stopNativeTools(payload);
+    case CHATGPT_CONNECTION_ACTIONS.disconnect: await current.chatgptBrowser?.disconnect(); return true;
     case CHATGPT_CONNECTION_ACTIONS.folder:
       if (!current.chatgptBrowser?.extensionPath) throw new Error('Save ChatGPT Browser as your provider first');
       return shell.openPath(current.chatgptBrowser.extensionPath);

@@ -1,6 +1,6 @@
 import { wire } from './wire.mjs';
 import { readSelectedPage } from './content.mjs';
-import { executeBoundSend } from './commands.mjs';
+import { executeBoundSend, executeBoundStop } from './commands.mjs';
 
 const POPUP_FILE = 'popup.html';
 const READERS_FILE = 'upstream/readers.js';
@@ -49,11 +49,24 @@ async function readTick() {
       if (snapshot) await request(current, wire.routes.observe, { binding: command.binding, nonce: command.nonce, snapshot });
       if (snapshot && command.operation) {
         const outcome = await executeBoundSend(chrome, command.operation, {
-        authorize: async (operationId, witness) => (await request(current, wire.routes.authorize, { binding: command.binding, operationId, witness })).allowed,
+        authorize: async (operationId, witness) => {
+          // Upload may outlive the initial freshness window. Refresh the same page before its one Send authorization.
+          const fresh = await request(current, wire.routes.poll);
+          if (!fresh.binding || fresh.binding.epoch !== command.binding.epoch) return false;
+          const observed = await observeBoundTab(chrome, command.binding, fresh.readback);
+          if (!observed) return false;
+          await request(current, wire.routes.observe, { binding: command.binding, nonce: fresh.nonce, snapshot: observed });
+          return (await request(current, wire.routes.authorize, { binding: command.binding, operationId, witness })).allowed;
+        },
         acknowledge: receipt => request(current, wire.routes.receipt, { binding: command.binding, operationId: command.operation.id, receipt }),
         });
         if (!outcome.dispatched) await request(current, wire.routes.receipt, { binding: command.binding, operationId: command.operation.id, failure: true });
       }
+      const stop = command.stopOperation ?? command.stopReadback;
+      if (snapshot && stop) await executeBoundStop(chrome, stop, {
+        authorize: async (operationId, witness) => (await request(current, wire.routes.authorize, { kind: 'stop', binding: command.binding, operationId, witness })).allowed,
+        acknowledge: receipt => request(current, wire.routes.receipt, { kind: 'stop', binding: command.binding, operationId: stop.id, receipt, confirmed: true }),
+      });
     }
   } catch { /* Connection errors never switch a tab, relaunch Chrome or execute a Send. */ }
 }

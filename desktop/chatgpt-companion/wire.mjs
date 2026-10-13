@@ -29,6 +29,16 @@ export const wire = Object.freeze({
   "maxFinalTextChars": 65536,
   "sendReadyMs": 5000,
   "sendReadyPollMs": 100,
+  "uploadReadyMs": 60000,
+  "maxAttachments": 8,
+  "maxAttachmentBytes": 10485760,
+  "blockedReasons": [
+    "quota",
+    "authorization",
+    "refusal",
+    "model-unavailable",
+    "transport"
+  ],
   "maxTurns": 6,
   "maxPickers": 8,
   "modelTriggers": "[data-codex-intelligence-trigger], [data-composer-navigation-target=\"reasoning\"]",

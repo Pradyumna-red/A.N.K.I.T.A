@@ -17,7 +17,13 @@
         "sendButtonEnabled",
         "send",
         "localeFreeSendControls",
-        "stopControls"
+        "stopControls",
+        "stopButton",
+        "stopGeneration",
+        "composerFileName",
+        "hasComposerAttachments",
+        "composerAttachmentNames",
+        "uploadImages"
       ]
     },
     {

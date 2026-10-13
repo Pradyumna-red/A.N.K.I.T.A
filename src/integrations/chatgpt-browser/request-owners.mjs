@@ -1,9 +1,8 @@
 import { EventEmitter } from 'node:events';
-import { normalizeRequestId } from './protocol.mjs';
+import { normalizeRequestId, sameBrowserBinding } from './protocol.mjs';
 import { OWNER_WAIT_MS, MAX_REQUEST_IDS } from '../../../services/chatgpt-bridge/config.mjs';
 
-const SAME_BINDING_FIELDS = ['leaseId', 'epoch', 'tabId', 'conversationId'];
-export function sameBinding(a, b) { return Boolean(a && b && SAME_BINDING_FIELDS.every(key => a[key] === b[key])); }
+export const sameBinding = sameBrowserBinding;
 
 /** Joins native HTTP metadata to one currently bound conversation. Never chooses by recency. */
 export class RequestOwners {
@@ -21,7 +20,7 @@ export class RequestOwners {
     }
     this.events.emit('change');
   }
-  async resolve({ leaseId, requestId, signal }) {
+  async resolve({ leaseId, requestId, signal, ready = () => true }) {
     const id = normalizeRequestId(requestId);
     if (!id || !this.binding || this.binding.leaseId !== leaseId || signal?.aborted) throw new Error('Request owner lease is unavailable');
     const check = () => {
@@ -29,7 +28,7 @@ export class RequestOwners {
       if (!this.records.has(id)) return null;
       const owner = this.records.get(id);
       if (!owner || !sameBinding(owner, this.binding)) throw new Error('Request owner is ambiguous or conflicting');
-      return owner;
+      return ready(owner) === true ? owner : null;
     };
     const known = check(); if (known) return known;
     return new Promise((resolve, reject) => {

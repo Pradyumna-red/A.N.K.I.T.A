@@ -19,6 +19,9 @@ files:
   - src/**/*
   - tools/**/*
   - skills/**/*
+  - services/chatgpt-bridge/**/*
+  - vendor/chat-on-steroids/**/*
+  - vendor/openai-tunnel/**/*
   - '!**/*.test.*'
   - '!desktop/renderer/src/**'
   - '!desktop/build/**'
@@ -30,6 +33,12 @@ files:
   - '!.github/**'
 asar: true
 extraResources:
+  - from: desktop/chatgpt-companion
+    to: chatgpt-companion
+    filter: ['**/*', '!**/*.d.mts']
+  - from: desktop/native-tunnel
+    to: native-tunnel
+    filter: ['**/*']
   - from: desktop/browser-helper
     to: browser-helper
     filter: ['**/*', '!**/*.d.mts']
@@ -38,6 +47,11 @@ extraResources:
 asarUnpack:
   - node_modules/chrome-devtools-mcp/**/*
 win:
+  # BEGIN publisher signing exclusions (generated from vendor/openai-tunnel/source.json)
+  signExts:
+    - '!tunnel-client.exe'
+    - '!cloudflared.exe'
+  # END publisher signing exclusions
   target:
     - target: nsis
       arch: [x64]

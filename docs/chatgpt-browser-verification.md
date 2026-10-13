@@ -382,3 +382,282 @@ Actual browser generation Stop, attachments and restart recovery are Task 6. Pac
 resource verification and the final whole-branch review are Task 7. The existing API
 provider remains tested. This checkpoint does not claim a released EXE or complete
 browser tool/Stop support.
+
+## Native tools, Stop and recovery checkpoint (2026-10-13)
+
+Tasks 5 and 6 now implement three native tool surfaces, exact full host binding
+joins and durable action receipts. A lost socket does not discard a committed
+write; an uncertain action is never executed again. Task browser discovery and
+direct targeting refuse the selected model page. The isolated browser path was
+run live; the connected Chrome backend contract was stub-driven.
+
+`test/desktop/chatgpt-browser.test.mjs` reports
+`NATIVE_LOCAL_ACTION_PROOF {realHttpMcp:true,exactOwnership:true,`
+`writeEditReadback:true,commandDone:true,exitCode:0,hostedChatGpt:false}`.
+`test/integrations/chatgpt-tool-ownership.test.mjs` reports
+`NATIVE_IMAGE_PROTOCOL_FIXTURE {realHttpMcp:true,nativeImagePreserved:true,`
+`freshTargetReadback:true,pointerSessionOwned:true,approvals:0,`
+`actualCuaDriver:false,hostedChatGpt:false}`. Neither trace is a hosted screenshot
+or actual Cua action proof. The later combined desktop/native/attachments
+checks passed **21/21**, exit 0, 13461 ms. The helper/desktop focused set passed
+**16/16**, exit 0, 6714 ms.
+
+Stop fences the epoch before another dispatch and retains one owned remote
+Stop grant. Reproductions exposed a false confirmation from button disappearance,
+a still-running background job, a pending approval shutdown deadlock, and
+transport cleanup skipped after cancellation errors. Their regressions failed
+then passed. Fresh setup under an already stopped binding also reproduced a
+late helper launch; it now starts zero helpers. Actual isolated page checks
+refuse a newer human turn and never click Stop twice. Only the exact owned
+terminal receipt confirms Stop.
+
+An encrypted pairing restores the same selected tab/host binding and remembered
+loopback address with fresh observation required. Unsent queued work is rejected;
+accepted or uncertain work is read without another Send. Explicit Resume imports
+one saved reply. A regression exposed desktop history normalization stripping
+its receipt ID and duplicating import; desktop metadata preservation now fixes
+that while default API normalization stays unchanged. Explicit Disconnect is
+remembered. Native action helpers do not launch during restart recovery.
+
+Uploads reuse the desktop bounds, MIME handling and secret scrubber. The native
+composer waits for exact new owned attachment tiles, no busy/progress state,
+and enabled Send; old same-name or substring tiles and extra human files are
+refused. An upload's longer wait refreshes the same selected page before its
+one authorization. Extracted documents are named text uploads. English semantic
+quota/authorization/refusal/model/transport alerts block without account/model/
+conversation changes, while quoted user alert text does not establish a limit.
+The relevant upload/bridge/reader set passed **30/30**, exit 0, 3944 ms. The
+handoff includes objective/project, actual admitted results, unresolved receipts
+and corrections and copies only on explicit user action.
+
+Windows resource preparation verified the official publisher archive and both
+helper members, included all **five** publisher notice/inventory files, and
+executed no binary during preparation. Runtime also checks both hashes before
+a credential-bearing child starts. Independent Sonatype scanning was unavailable.
+The package copies the extension and native helper outside ASAR and includes
+services and source provenance inside ASAR. A new builder test reproduced vendor
+helper signing that would invalidate those pins; metadata-generated signing
+exclusions now preserve both publisher binaries and still sign ANKITA. Resource
+and complete main/island CSP checks passed **3/3**, with both renderers mounted
+and `errors:[]`; the signing/resource pair subsequently passed **2/2**.
+
+`npm run desktop:pack` exited **0**, desktop renderer built in **4.26 s**, and
+created the local Windows app directory. Both packaged helpers matched publisher
+hashes and all notice files were present. This is a local app directory, not a
+published installer.
+
+The actual packaged executable was run with an isolated profile and native-DOM
+browser using `scripts/verify-chatgpt-browser.mjs --executable <owned executable>`.
+Its safe trace exited **0** and reported `packagedApplication:true,`
+`attachmentAccepted:true,actualOsEncryptedPairing:true,samePairingRestored:true,`
+`crashResumeWithoutReplay:true,resumedReplyImportedOnce:true,`
+`nativeHelpersLaunchedOnRestart:0,ownedStopClicks:1,nativeStopConfirmed:true,`
+`userBrowserSurvived:true,lifecycleSends:3,rendererErrors:[],hostedChatGpt:false`.
+The abrupt exit affected only the isolated test app; its independent browser
+survived and its accepted question was not sent again. Original user/CoS settings
+were untouched. The first final serial regression subsequently exited **1**:
+**1324 tests, 1320 passes, 3 failures, 1 skip**, 851256 ms. Two unprotected
+Playwright target regressions and a process-preview verification failure were
+reported. After conditional protection and duplicate-tunnel guards, the affected
+desktop/native/browser/process serial set passed **60/60**, exit **0**, 48060 ms.
+The process test was unchanged and passed on that rerun; a final full rerun is
+still required.
+
+Hosted native routing reproduction: all three configured tool groups shared one
+tunnel ID. Actual receipts recorded `find_tools` and `run_command` on
+`surface:desktop,isError:true` with the unavailable-surface refusal. Only the
+owned Desktop/Plugins helpers were disconnected; Core remained connected.
+The next hosted request produced successful Core `write_file` and `edit_file`
+receipts, but later calls returned `CONFLICT: Receipt payload changed`.
+A safe native ingress-shape probe subsequently measured the same generation root
+and JSON-RPC ID **0** for `list_dir` and `run_command`, while the full native
+request IDs differed. The generation root remains the exact conversation join;
+the complete transport token plus RPC ID now distinguishes admitted calls.
+The new regression failed **409 versus expected 200**, then passed. Exact retries
+still share a receipt, changed payload under the same full identity is refused,
+and a different full call token can repeat an intentional action. Old
+generation-wide receipts refuse upgrade replay instead of being re-executed.
+The combined desktop/gateway/ownership set passed **27/27**, exit **0**, 25322 ms.
+Malformed and oversized native call tokens are refused before execution.
+Tunnel/Stop/packaging/gateway checks subsequently passed **21/21**, exit **0**,
+20016 ms. These tests still do not establish the hosted multi-action gate.
+
+The updated local Windows app directory packaged successfully. An independent
+ASAR/source check matched **five** changed source modules, both publisher helper
+hashes and all **five** publisher notices. Only the owned test app was restarted;
+normal quit drained its helpers. A verification script first used POSIX archive
+member paths against the Windows ASAR API and was corrected to use detected
+platform path normalization. No production packaging workaround was added.
+
+Remaining gates: the product's real account Core/Desktop connections, actual
+hosted screenshot → fresh target action/readback, hosted Stop and attachment/
+restart checks, full serial suite result, final fresh whole-branch review and
+integration into `ankita`. A separate packaged test window is open for manual
+account setup and sends **zero** messages automatically. No browser integration
+PR, merge, installer publication or completed Task 5/6/7 claim has occurred.
+
+## Hosted multi-tool completion and discovery follow-up (2026-10-13)
+
+The native job-status request initially arrived during a brief `observing` page
+state and returned `FORBIDDEN: Request owner is unavailable`. A regression
+reproduced immediate refusal instead of waiting for the same selected binding.
+The resolver now uses its existing bounded wait and readiness predicate; changed
+bindings, blocked states and historical requests remain refused. The affected
+freshness/bridge/gateway/ownership set passed **42/42**, exit **0**, 17984 ms.
+
+The rebuilt packaged application completed the actual hosted Core gate. Safe
+trace: `actualPackagedElectron:true,hostedChatGpt:true,sends:1,finished:true,`
+`fileReadbackMatched:true,replyMatched:true,turnEnds:1,errors:0`. It admitted
+`write_file,edit_file,read_file,run_command,job_status,find_tools,job_wait`.
+Independent native receipts proved `actualChildDone:true,exitCode:0,`
+`outputMatched:true,nativeStatusReceipts:2,replyMatched:true`; both checks exited
+**0**. The ordinary file/command permissions were completed by the human.
+
+The next full serial run exited **1**: **1328 tests, 1326 passes, one failure,
+one skip**, 915820 ms. The unchanged skill-scaffold rollback test failed under
+that run's load; its isolated recheck passed in the 42-test affected set. This
+is an outstanding full-suite finding, not a claimed green result.
+
+The account had installed only ANKITA Proof, despite three connected ANKITA
+tunnel cards. The human created ANKITA Desktop on its separate tunnel. Native
+`mcp__ankita-computer__list_windows` reached the actual driver with **zero**
+approval requests. The first owned WinForms fixture had no visible window and
+was corrected in ignored test code. A subsequent session-ended driver error
+was left stopped until the human explicitly stopped and reconnected it.
+This is not yet a screenshot/action proof.
+
+Core discovery previously claimed Desktop tools were callable while its own
+MCP interface excluded them. The regression failed before using the same private
+host interface set for discovery and execution. Focused host/gateway/ownership
+checks passed **25/25**, exit **0**, 8937 ms. Ordinary API discovery, tool loop,
+browser focus/protocol/skill and MCP context/store checks subsequently passed
+**106/106**, exit **0**, 75914 ms, including real isolated and local browser
+round trips. Final packaging and full-suite verification of this change remain
+pending at this checkpoint.
+
+The next serial log reported **1331 tests, 1330 passes, zero failures, one
+skip**, 835255 ms; its runner exited **0**. The unchanged scaffold rollback
+passed. This precedes the driver lifecycle follow-up below.
+
+The current source packaged successfully with renderer build **8.49 s**. Its
+ASAR independently matched **10** changed source files, both pinned publisher
+binaries and all **five** notices. The refreshed isolated packaged lifecycle
+again exited **0**: encrypted pairing/restart matched, explicit resume imported
+once, attachment accepted, native Stop confirmed with one click, three Sends,
+zero restart helper launches and `rendererErrors:[]`. This is a native-DOM
+fixture, not a hosted account Stop/upload/restart claim.
+
+An unaccepted owned test was cancelled: `remoteStop:confirmed,`
+`nativeHelpersClosed:true,otherApplicationsClosed:false`. A non-production
+diagnostic listener briefly consumed observation bytes before the application;
+it was removed and replaced with an iterator-preserving trace. The affected
+claimed request was cancelled without Send replay. The user then removed their
+unrelated composer text, which had correctly caused the next Send to be refused.
+After refreshing the same ChatGPT chat, an exact new request root appeared in
+companion evidence and the native gateway returned **HTTP 200**. No freshness,
+request-ownership or human-draft guard was relaxed.
+
+Actual driver inspection found `list_windows.inputSchema.additionalProperties`
+**false** and no `session` property. `get_window_state` supports a named session.
+Its owned pointer session read succeeded; the attached implicit session read
+returned **isError:true** with the ended-session refusal. Preparing only the
+named pointer left strict discovery unusable. A real external-protocol fixture
+reproduced that refusal RED, then explicitly initializing the transport's
+implicit lifecycle before reserving its separate owned pointer made it GREEN.
+The existing stopped-pointer fast path never restarts an ended pointer.
+Controller/host/native-ownership checks passed **44/44**, exit **0**, 23339 ms.
+The rebuilt hosted Desktop gate and a final full suite after this correction
+remain required.
+
+The driver-lifecycle candidate packaged successfully (renderer **12.24 s**).
+Independent ASAR/source comparison matched **11** modules, both publisher
+helper binaries and all **five** notices. The old isolated app normally quit;
+its verified owner exited before the replacement opened. The actual replacement
+restored the same encrypted browser connection and reported `automaticSends:0`
+with all three native cards `setup-required`. Reconnecting the unchanged,
+already approved driver reported `connected:true,pointerEnabled:true,toolCount:25`.
+Saved Desktop/Core tunnel connections were reused without entering credentials.
+
+The **actual hosted Desktop vision/action check exited 0**. Exact safe trace:
+`actualPackagedElectron:true,hostedChatGpt:true,actualCuaDriver:true,finished:true,`
+`nativeImages:5,firstMetadataContainedNumber:false,freshNativeActions:2,`
+`actualUiMatched:true,actualButtonClicks:1,replyMatched:true,approvals:0,errors:0`.
+The eight calls were `list_windows`, five `get_window_state` calls, `set_value`
+and `click` under the ANKITA computer namespace. The random six-digit value was
+drawn only in the fixture bitmap and was not provided in the prompt or initial
+accessibility/target text. Independent fixture readback confirmed the textbox
+and exactly one Apply click. This closes Task 5's hosted screenshot plus fresh
+action/readback gate; it is not a simulated provider or mock driver result.
+
+## Accepted execution after HTTP disconnect
+
+The first hosted Stop attempt exited **1** before issuing Stop. Independent
+owned-job readback found both harmless 90-second commands `done:true,`
+`stopped:false,exitCode:0`; no Stop completion is inferred. One native receipt
+said `admission ended without an execution receipt` while its command later ran.
+The SDK's Node adapter returns on socket loss independently of the accepted
+tool callback. Gateway fallback settlement had treated adapter return as tool
+completion, permanently replacing the later actual result.
+
+The real HTTP/SDK/ToolHost/filesystem regression disconnects while human approval
+is pending, then verifies no false result, teardown waiting for accepted work,
+the exact written bytes and a durable successful retry with one approval/write.
+It failed RED with the same premature error, then passed GREEN after retaining
+and awaiting the admitted execution promise. The serial host/gateway/ownership/
+Stop set exited **0**, **35/35**, 18375 ms. This is a real disconnected local
+transport proof, not a hosted Stop completion claim. Desktop build exited **0**,
+renderer **9.29 s**. Initial repack failed with `ENOSPC`; only old ignored test
+build directories were removed from the verified worktree before retrying.
+
+## Final hosted Stop, upload and restart checks
+
+The corrected candidate packaged with exit **0**. Its ASAR matched all **11**
+inspected source modules, both publisher binaries and all **five** notices.
+The subsequent **actual hosted Stop check exited 0**:
+`actualPackagedElectron:true,hostedChatGpt:true,remoteStop:confirmed,`
+`nativeHelpersClosed:true,ownedCommandDone:true,ownedCommandStopped:true,`
+`finalExitCode:1,finalSignal:null,ownedPointerCleared:true`.
+The actual Cua `end_session` call for the owned pointer acknowledged success.
+The check first observed the actual command PID and its printed marker while
+the hosted reply was active, then invoked ANKITA cancel exactly once. A separate
+OS check reported `originalUserAppsSurvived:true,checkedUserApps:1,`
+`ownedJobProcessExited:true,ownedTestWindowSurvived:true`. The visible original
+application was Chrome. This verifies session release, not an independently
+measured arrow-pixel disappearance; the native end result exposes `active` and
+`session` fields rather than a cursor visibility field.
+
+The first reader in the ignored Stop script captured an as-yet absent job map;
+its failed check did not invoke Stop. Reading the current engine map corrected
+the test reader, without changing product code. The preceding waiting command
+finished normally with exit code 0. The subsequent successful gate above used
+a fresh explicitly approved command.
+
+The **actual hosted text upload check exited 0**:
+`sends:1,uploads:1,uploadAccepted:true,nativeUserAccepted:true,outcome:completed,`
+`exactReplyMatched:true,importedOnce:true,errors:[]`. The unique exact expected
+text existed only inside the uploaded file, not the question. Native composer
+acceptance, exact accepted user receipt, final content and ANKITA history all
+matched.
+
+The **actual hosted abrupt-restart and explicit Resume check exited 0**:
+`samePairingRestored:true,originalAcceptedReceiptMatched:true,`
+`operationCountUnchanged:true,outcome:completed,consumed:true,`
+`replyReadbackMatched:true,userImportedOnce:true,replyImportedOnce:true,`
+`newHelperLaunches:0,errors:[]`. Before closing only the owned test app, its
+question was `accepted` and unconsumed with an exact native user/turn receipt.
+All **three** original helper PIDs subsequently exited. The same packaged app
+restored its encrypted binding and read that original response through explicit
+Resume; no extra operation or user-history question was created. Chrome stayed
+open throughout.
+
+Several preliminary Send/Resume attempts failed before queue/dispatch with the
+existing setup-required message when fresh page evidence was unavailable. A
+later explicit attempt succeeded. The exact timing cause was not independently
+captured, so no new freshness fix is claimed and no automatic retry was added.
+These refusals remain a UX finding; accepted questions were never resubmitted.
+
+Final serial Node suite: **1333 tests, 1332 passes, 0 failures, 1 existing skip**,
+**1083265 ms**. The PowerShell wrapper saved the actual Node exit immediately
+and reported `final-node-suite-exit:0`; the tool also exited **0**. This run
+includes the driver lifecycle and accepted-execution lifetime corrections.
+Final independent whole-branch review and integration remain next.
