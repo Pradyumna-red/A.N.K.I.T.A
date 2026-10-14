@@ -747,3 +747,23 @@ resource preparation. The source passed the introduced-literal audit and
 media, dumps, keys, profiles, native binaries or local release builds.
 Final integration, exact-commit remote workflow and installer publication
 remain pending at this checkpoint.
+
+## First merged release runner and line-ending regression
+
+PR #65 merged at `a373165d75b01103792b6ec428226ea82063ac05`; the original
+checkout fast-forwarded to it. Seventeen local source edits were preserved,
+including clean three-way merges of its local changelog/workflow edits; their
+original bytes and two older untracked plan copies were retained separately.
+The merged tree matches the checked feature tree exactly.
+
+Release run `38500981836` stopped before publication: **1345 tests, 1333 passes,
+one failure, 11 skips**, **333674 ms**. The only failure was the signing-policy
+test's LF-only regular expression, which returned empty exclusions on Windows
+CRLF checkout. Adding a CRLF variant reproduced its exact `true !== false`
+failure locally. The test now parses the same YAML with the builder's existing
+locked parser, exercises both LF and CRLF, and still invokes the real
+`WinPackager.shouldSignFile` for publisher members and ANKITA's executable.
+It passed **3/3**, exit **0**, **1898 ms** after correction. Production code,
+package configuration, dependency pins and signing assertions are unchanged.
+No test was skipped or relaxed to publish. The final corrected merged commit
+must complete the full release workflow before the release is claimed.
