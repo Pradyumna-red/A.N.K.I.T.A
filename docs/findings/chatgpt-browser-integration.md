@@ -24,10 +24,11 @@ pointer session while the original Chrome process and test window survived.
 One uploaded text file produced its exact content once in saved history.
 Abrupt restart retained the original accepted question; explicit Resume imported
 its correlated reply once with no new operation or native helper launch.
-The final serial suite passed 1332/1333 with one existing skip and zero failures.
-Independent whole-branch review found six important follow-ups. Their fixes
-are now implemented; the final rebuilt/full-suite checks and reviewer recheck
-remain the integration gate.
+The final serial suite passed 1344/1345 with one existing skip and zero failures.
+Independent whole-branch review found six important follow-ups, all corrected
+and independently rechecked. The final 2.6.0 package matched 15 source modules,
+both publisher binaries and five notices; its lifecycle and actual hosted
+no-card Core checks passed. Merge and exact-commit release publication remain.
 
 Known boundaries:
 
@@ -42,7 +43,7 @@ Known boundaries:
 - Receipt deduplication applies to an exact full native HTTP call token and RPC ID. A provider request with a different full token is a separate admission; it is not a universal business-action idempotency key.
 - Native helper packaging currently verifies Windows x64 only. Publisher checksum matching is proven; independent vulnerability scanning was unavailable.
 - Ready requires recent page evidence. Several live Send/Resume attempts were refused before any new dispatch when readiness expired between the displayed status and runtime admission. A later explicit attempt succeeded. No automatic retry or weaker freshness guard was introduced; improving this transient refusal requires a separate traced change.
-- No installer publication or final fresh whole-branch review is claimed yet.
+- Installer publication remains the next release gate; source/package review is complete.
 
 Live native routing finding: the account configured the same tunnel ID for Core,
 Desktop and Plugins. Durable receipts showed `find_tools` and `run_command`

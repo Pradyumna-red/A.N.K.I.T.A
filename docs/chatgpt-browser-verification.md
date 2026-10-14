@@ -737,7 +737,13 @@ The diagnostic reader excludes older same-binding jobs by the operation's
 dispatch time; its earlier aggregate mixed reused job IDs from old questions.
 That was a test-reader issue, not a changed product receipt.
 
-The latest full serial suite is running with a separate temporary config
-directory, preserving the user's saved automatic-action preference. Final
-integration, exact-commit remote workflow and installer publication remain
-pending at this checkpoint.
+The final full serial suite used a separate temporary config directory,
+preserving the user's saved automatic-action preference. It exited **0**:
+**1345 tests, 1344 passes, zero failures, one existing skip**, **552428 ms**.
+The wrapper captured the actual Node exit immediately; the tool also exited
+**0**. This covers all six corrections, admission serialization and release
+resource preparation. The source passed the introduced-literal audit and
+`git diff --check`; only code/tests/docs/manifests are staged, with no generated
+media, dumps, keys, profiles, native binaries or local release builds.
+Final integration, exact-commit remote workflow and installer publication
+remain pending at this checkpoint.

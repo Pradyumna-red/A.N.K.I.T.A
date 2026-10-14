@@ -57,6 +57,12 @@ No unreleased changes.
 
 ### Setup and limits
 
+- The final serial suite passed **1,344 tests, zero failures, one existing skip**.
+  The rebuilt 2.6.0 app passed its packaged lifecycle check and actual ChatGPT
+  file/edit/read/command/wait flow with **zero approval cards or errors**.
+  Hosted computer vision/action, owned Stop, upload and restart/Resume proofs
+  are recorded separately in the verification guide.
+
 - Follow the [ChatGPT Browser guide](docs/guides/chatgpt-browser.md). Connected
   ANKITA tunnel cards and installed/enabled ChatGPT MCP apps are separate setup
   steps. Each active group needs a dedicated tunnel.
