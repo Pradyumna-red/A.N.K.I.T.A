@@ -28,7 +28,10 @@ The final serial suite passed 1344/1345 with one existing skip and zero failures
 Independent whole-branch review found six important follow-ups, all corrected
 and independently rechecked. The final 2.6.0 package matched 15 source modules,
 both publisher binaries and five notices; its lifecycle and actual hosted
-no-card Core checks passed. Merge and exact-commit release publication remain.
+no-card Core checks passed. PR #65 and #66 are merged, and the exact-commit
+Windows release workflow passed. The published installer also passed content,
+checksum and native lifecycle checks; see
+[published 2.6.0 verification](../releases/2.6.0-verification.md).
 
 Known boundaries:
 
@@ -43,7 +46,7 @@ Known boundaries:
 - Receipt deduplication applies to an exact full native HTTP call token and RPC ID. A provider request with a different full token is a separate admission; it is not a universal business-action idempotency key.
 - Native helper packaging currently verifies Windows x64 only. Publisher checksum matching is proven; independent vulnerability scanning was unavailable.
 - Ready requires recent page evidence. Several live Send/Resume attempts were refused before any new dispatch when readiness expired between the displayed status and runtime admission. A later explicit attempt succeeded. No automatic retry or weaker freshness guard was introduced; improving this transient refusal requires a separate traced change.
-- Installer publication remains the next release gate; source/package review is complete.
+- Windows 2.6.0 is published; additional helper platforms remain unverified.
 
 Live native routing finding: the account configured the same tunnel ID for Core,
 Desktop and Plugins. Durable receipts showed `find_tools` and `run_command`
