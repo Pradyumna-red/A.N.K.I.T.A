@@ -21,18 +21,20 @@ test('packaged companion and native helper resolve through real resources outsid
 });
 
 test('Windows packaging keeps publisher helper bytes intact while signing ANKITA itself', () => {
-  const text = fs.readFileSync(new URL('../../desktop/packaging/electron-builder.yml', import.meta.url), 'utf8');
-  const block = text.match(/  signExts:\n((?:    - [^\n]+\n)+)/)?.[1] ?? '';
-  const signExts = [...block.matchAll(/    - '([^']+)'/g)].map(match => match[1]);
+  const source = fs.readFileSync(new URL('../../desktop/packaging/electron-builder.yml', import.meta.url), 'utf8');
   const require = createRequire(import.meta.url);
+  const { load } = require('js-yaml'); // Use the builder's existing locked YAML parser, including Windows checkout line endings.
   require('app-builder-lib'); // The builder's public entry initializes its mutually dependent packager classes.
   const { WinPackager } = require('app-builder-lib/out/winPackager.js');
-  const shouldSign = file => WinPackager.prototype.shouldSignFile.call({ platformSpecificBuildOptions: { signExts } }, file);
-  for (const target of Object.values(publisher.targets)) {
-    assert.equal(shouldSign(target.filename), false, 'The publisher primary hash must survive a signed ANKITA package');
-    assert.equal(shouldSign(target.companionFilename), false, 'The publisher forwarding helper hash must survive signing');
+  for (const newline of ['\n', '\r\n']) {
+    const { win } = load(source.replace(/\r?\n/g, newline));
+    const shouldSign = file => WinPackager.prototype.shouldSignFile.call({ platformSpecificBuildOptions: win }, file);
+    for (const target of Object.values(publisher.targets)) {
+      assert.equal(shouldSign(target.filename), false, 'The publisher primary hash must survive a signed ANKITA package');
+      assert.equal(shouldSign(target.companionFilename), false, 'The publisher forwarding helper hash must survive signing');
+    }
+    assert.equal(shouldSign('Ankita.exe'), true);
   }
-  assert.equal(shouldSign('Ankita.exe'), true);
 });
 
 test('release CI prepares pinned companion and native helper resources before either Windows package branch', () => {
