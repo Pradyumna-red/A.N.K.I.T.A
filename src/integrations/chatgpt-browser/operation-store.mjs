@@ -96,7 +96,12 @@ export class BrowserOperationStore {
       if ([OPERATION_OUTCOMES.stopped, OPERATION_OUTCOMES.rejected].includes(row.outcome)) return false;
       const accepted = acceptedReceipt(binding, receipt);
       if (!accepted) throw new Error('Invalid native user receipt');
-      if (row.receipt) { if (!receiptEqual(row.receipt, accepted)) throw new Error('Native receipt owner changed'); return false; }
+      if (row.receipt) {
+        if (!receiptEqual(row.receipt, accepted)) throw new Error('Native receipt owner changed');
+        // Reobserving the same native user reconciles uncertainty; it grants no new Send.
+        if (row.outcome !== OPERATION_OUTCOMES.uncertain) return false;
+        row.outcome = OPERATION_OUTCOMES.accepted; row.acceptedAt = Date.now(); return true;
+      }
       if (![OPERATION_OUTCOMES.dispatched, OPERATION_OUTCOMES.uncertain].includes(row.outcome)) throw new Error('Receipt precedes durable dispatch');
       if (state.operations.some(other => other.id !== id && other.receipt?.conversationId === accepted.conversationId && other.receipt?.userMessageId === accepted.userMessageId)) throw new Error('Native message receipt already has an owner');
       row.receipt = accepted; row.outcome = OPERATION_OUTCOMES.accepted; row.acceptedAt = Date.now(); return true;

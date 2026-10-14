@@ -34,3 +34,13 @@ test('Windows packaging keeps publisher helper bytes intact while signing ANKITA
   }
   assert.equal(shouldSign('Ankita.exe'), true);
 });
+
+test('release CI prepares pinned companion and native helper resources before either Windows package branch', () => {
+  const workflow = fs.readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8');
+  const prepare = workflow.indexOf('npm run desktop:resources');
+  assert.ok(prepare >= 0, 'a clean release runner must prepare the ignored native resource directory');
+  for (const config of ['electron-builder.signing.yml', 'electron-builder.yml']) {
+    assert.ok(workflow.indexOf('--config desktop/packaging/' + config) > prepare,
+      'both signed and unsigned package routes must follow resource preparation');
+  }
+});

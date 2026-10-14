@@ -13,6 +13,7 @@ export class ChatGptRuntime {
     this.kind = CHATGPT_BROWSER_PROVIDER; this.bridge = bridge; this.delivery = delivery; this.store = store;
     this.history = history; this.onEvent = onEvent; this.pending = new Map(); this.closed = false;
     this.onCancel = onCancel; this.onReadyBinding = onReadyBinding; this.cancelling = new Map(); this.stops = new Map();
+    this.recoverable = [];
   }
   view() {
     const view = this.bridge.view(), stop = this.stops.get(view.binding?.threadId);
@@ -24,7 +25,14 @@ export class ChatGptRuntime {
     if (!binding) return;
     const stop = await this.store.stopCommand(binding);
     if (stop) this.stops.set(binding.threadId, { binding, phase: stop.phase });
-    this.recoverable = (await this.store.list(binding)).filter(row => !row.consumed &&
+    await this.refreshRecoverable();
+  }
+  async refreshRecoverable() {
+    const binding = this.view().binding;
+    if (!binding) { this.recoverable = []; return; }
+    const rows = await this.store.list(binding);
+    if (!sameOperationBinding(binding, this.view().binding)) return; // An old asynchronous read cannot publish recovery for a replacement selection.
+    this.recoverable = rows.filter(row => !row.consumed && !this.pending.has(row.id) &&
       [OPERATION_OUTCOMES.accepted, OPERATION_OUTCOMES.dispatched, OPERATION_OUTCOMES.uncertain, OPERATION_OUTCOMES.completed].includes(row.outcome))
       .map(row => ({ id: row.id, outcome: row.outcome }));
   }
@@ -65,7 +73,8 @@ export class ChatGptRuntime {
     const abort = () => { void this.cancel(threadId).catch(error => reject(error)); };
     signal?.addEventListener('abort', abort, { once: true });
     try {
-      const operation = await this.delivery.enqueue({ id, binding, kind: 'send', text: this.history(String(text ?? '')), ...(uploads.length ? { attachments: uploads } : {}) });
+      const input = { id, binding, kind: 'send', text: this.history(String(text ?? '')), ...(uploads.length ? { attachments: uploads } : {}) };
+      const operation = await (this.bridge.enqueue ? this.bridge.enqueue(input) : this.delivery.enqueue(input));
       await onQueued?.(operation);
       if (signal?.aborted) await this.cancel(threadId);
       return await completion;
@@ -91,7 +100,7 @@ export class ChatGptRuntime {
       return await completion;
     } finally { signal?.removeEventListener('abort', abort); this.pending.delete(operationId); }
   }
-  deliveryEvent(event) {
+  async deliveryEvent(event) {
     if (event.type === 'stop-confirmed' || event.type === 'stop-uncertain') {
       const stop = this.stops.get(event.binding.threadId);
       if (sameOperationBinding(stop?.binding, event.binding)) {
@@ -101,13 +110,16 @@ export class ChatGptRuntime {
       return;
     }
     const owner = this.pending.get(event.operationId);
-    if (!owner || !sameOperationBinding(owner.binding, event.binding)) return;
-    if (event.type === 'progress') owner.onProgress?.({ ...event.progress, text: this.history(event.progress.text) });
-    if (event.type === 'completed') owner.resolve({ outcome: 'completed', text: this.history(event.completion.text), operationId: event.operationId });
-    if (event.type === 'blocked') owner.reject(new Error(`ChatGPT reported ${event.reason}. Resolve it in the selected chat before explicitly resuming. No fallback or automatic retry was started.`));
-    if (event.type === 'rejected' || event.type === 'uncertain') owner.reject(new Error(event.type === 'uncertain'
-      ? 'ChatGPT delivery could not be confirmed. The message may have been sent and will not be sent again.'
-      : 'ChatGPT did not accept this message. Check its editor and connection before trying again.'));
+    if (!sameOperationBinding(event.binding, this.view().binding)) return;
+    if (owner && sameOperationBinding(owner.binding, event.binding)) {
+      if (event.type === 'progress') owner.onProgress?.({ ...event.progress, text: this.history(event.progress.text) });
+      if (event.type === 'completed') owner.resolve({ outcome: 'completed', text: this.history(event.completion.text), operationId: event.operationId });
+      if (event.type === 'blocked') owner.reject(new Error(`ChatGPT reported ${event.reason}. Resolve it in the selected chat before explicitly resuming. No fallback or automatic retry was started.`));
+      if (event.type === 'rejected' || event.type === 'uncertain') owner.reject(new Error(event.type === 'uncertain'
+        ? 'ChatGPT delivery could not be confirmed. The message may have been sent and will not be sent again.'
+        : 'ChatGPT did not accept this message. Check its editor and connection before trying again.'));
+    }
+    if (event.type !== 'progress') await this.refreshRecoverable(); // Includes observation-only finals after the active caller has already ended.
     this.onEvent(event);
   }
   async cancel(threadId) {
@@ -120,6 +132,7 @@ export class ChatGptRuntime {
         await this.delivery.stop(binding);
         const command = await this.store.stopCommand(binding);
         this.stops.set(threadId, { binding, phase: command?.phase ?? STOP_PHASES.confirmed });
+        await this.refreshRecoverable();
         this.onEvent({ type: 'stopped', binding });
         await this.onCancel(binding);
       } finally {

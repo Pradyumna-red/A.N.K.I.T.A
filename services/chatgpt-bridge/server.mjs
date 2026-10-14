@@ -31,6 +31,7 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
   const owners = new RequestOwners(); const validateHost = localhostHostValidation();
   const restored = await store?.load?.();
   let pairing = restored?.pairing ?? null, tabs = [], binding = restored?.binding ? Object.freeze({ ...restored.binding }) : null, nonce = null, observation = null, observedAt = null;
+  let selectedTabUnavailable = false; // Current tab inventory can revoke page authority without discarding unsettled Send custody.
   let disconnected = restored?.desired === false;
   let port = BRIDGE_PORT;
   if (restored?.address) {
@@ -45,6 +46,25 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
     owners.bind(binding); await delivery?.recover(binding);
   }
   const persist = () => store?.save?.({ desired: !disconnected, pairing, binding, address: bridge.address });
+  let bindingAdmissions = Promise.resolve();
+  const admitBinding = action => {
+    // Selection changes and durable Send admission share custody even across asynchronous journal reads.
+    const task = bindingAdmissions.catch(() => {}).then(action);
+    bindingAdmissions = task; return task;
+  };
+  const replaceBinding = async input => {
+    binding = Object.freeze({ leaseId: randomUUID(), epoch: randomUUID(), browserId: pairing.browserId, tabId: input.tabId,
+      conversationId: input.conversationId, threadId: config.threadId, workspacePath });
+    observation = null; observedAt = null; nonce = null; owners.bind(binding);
+    selectedTabUnavailable = false;
+    await persist(); return { ...binding };
+  };
+  const requireSettledBinding = async () => {
+    const current = binding;
+    if (current && delivery && !await delivery.canReplaceBinding(current))
+      throw statusError('Resume the unresolved reply or confirm Stop before changing the selected chat', HTTP_STATUS.conflict);
+    if (!sameBinding(current, binding) && current !== binding) throw statusError('Selected browser binding changed', HTTP_STATUS.conflict);
+  };
   const active = new Set(); let closing = false;
   const view = () => {
     const fresh = observedAt !== null && Date.now() - observedAt <= OBSERVATION_MAX_AGE_MS;
@@ -52,7 +72,7 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
     const matches = observation?.models?.filter(model => model.id === observation.selectedModel && model.available &&
       (!observation.selectedEffort || model.effort === observation.selectedEffort)) ?? [];
     const selected = matches.length === 1 ? matches[0] : null;
-    return { status: disconnected || closing ? 'disconnected' : !pairing ? 'pairing-required' : !binding ? 'select-tab' : !fresh ? BRIDGE_OBSERVING_STATUS : observation?.blockedReason ? 'blocked' : !accountReady ? PAGE_UNAVAILABLE_STATUS : !selected && modelMode !== MODEL_MODES.current ? 'model-unavailable' : BRIDGE_READY_STATUS,
+    return { status: disconnected || closing ? 'disconnected' : !pairing ? 'pairing-required' : !binding || selectedTabUnavailable ? 'select-tab' : !fresh ? BRIDGE_OBSERVING_STATUS : observation?.blockedReason ? 'blocked' : !accountReady ? PAGE_UNAVAILABLE_STATUS : !selected && modelMode !== MODEL_MODES.current ? 'model-unavailable' : BRIDGE_READY_STATUS,
       binding: binding && { ...binding }, accountReady: Boolean(accountReady), selectedModel: fresh ? observation?.selectedModel ?? null : null,
       models: fresh ? observation?.models ?? [] : [], modelMode, blockedReason: fresh ? observation?.blockedReason ?? null : null, observationReason: fresh ? observation?.observationReason ?? null : null, observedAt };
   };
@@ -68,32 +88,43 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
       return { version: COMPANION_VERSION, status: view().status };
     },
     async reportTabs(input) {
+      return admitBinding(async () => {
       if (!pairing || input.browserId !== pairing.browserId || disconnected) throw statusError('Wrong paired browser', HTTP_STATUS.forbidden);
       if (!Array.isArray(input.tabs) || input.tabs.length > MAX_TABS) throw statusError('Invalid tab list');
       tabs = input.tabs.map(tab => ({ id: tab.id, conversationId: conversationFromUrl(tab.url), title: typeof tab.title === 'string' ? tab.title.slice(0, MAX_ID_CHARS) : '' }))
         .filter(tab => Number.isSafeInteger(tab.id) && tab.conversationId);
       if (binding && !tabs.some(tab => tab.id === binding.tabId && tab.conversationId === binding.conversationId)) {
-        owners.clear(); binding = null; nonce = null; observation = null; observedAt = null; await persist();
-      }
+        if (delivery && !await delivery.canReplaceBinding(binding)) {
+          selectedTabUnavailable = true; nonce = null; observedAt = null;
+          owners.observe(binding, []); // Wake waiters to revoke freshness; retain exact ownership for return to this same page.
+          await delivery.block(binding, 'transport');
+        } else { owners.clear(); binding = null; nonce = null; observation = null; observedAt = null; }
+        await persist();
+      } else selectedTabUnavailable = false;
       return { status: view().status };
+      });
     },
     async listTabs() { return tabs.map(tab => ({ ...tab, browserId: pairing.browserId, bound: binding?.tabId === tab.id })); },
     async bind(input) {
+      return admitBinding(async () => {
       if (!pairing || disconnected || input.browserId !== pairing.browserId) throw statusError('Browser is not paired', HTTP_STATUS.forbidden);
       if (input.threadId !== config.threadId || fs.realpathSync(input.workspacePath) !== workspacePath) throw statusError('Host workspace/thread cannot be replaced', HTTP_STATUS.forbidden);
       if (!tabs.some(tab => tab.id === input.tabId && tab.conversationId === input.conversationId)) throw statusError('Selected tab does not own the conversation', HTTP_STATUS.forbidden);
-      binding = Object.freeze({ leaseId: randomUUID(), epoch: randomUUID(), browserId: pairing.browserId, tabId: input.tabId,
-        conversationId: input.conversationId, threadId: config.threadId, workspacePath });
-      observation = null; observedAt = null; nonce = null; owners.bind(binding);
-      await persist();
-      return { ...binding };
+      // Repeating Observe on the same selection preserves its pending reply and exact native owners.
+      if (binding?.tabId === input.tabId && binding.conversationId === input.conversationId) return { ...binding };
+      await requireSettledBinding();
+      return replaceBinding(input);
+      });
     },
     async renewBinding(owner) {
+      return admitBinding(async () => {
       if (!sameBinding(owner, binding) || view().status !== BRIDGE_READY_STATUS) throw new Error('Fresh selected browser binding is required for renewal');
-      return bridge.bind({ ...binding }); // Host-only: an explicit new Send retains the selected tab and starts new custody.
+      await requireSettledBinding();
+      return replaceBinding(binding); // Host-only: an explicit new Send after settled Stop starts fresh custody.
+      });
     },
     async poll() {
-      if (!pairing || !binding || disconnected) return { binding: null };
+      if (!pairing || !binding || disconnected || selectedTabUnavailable) return { binding: null };
       const current = binding;
       const operation = delivery && view().status === BRIDGE_READY_STATUS ? await delivery.poll(current) : null;
       const readback = delivery ? await delivery.readback(current) : null;
@@ -103,7 +134,7 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
       nonce = randomUUID(); return { binding: { ...binding }, nonce, operation, readback, stopOperation, stopReadback };
     },
     async observe(input) {
-      if (disconnected || !sameBinding(input?.binding, binding) || !nonce || input.nonce !== nonce || input.snapshot?.conversationId !== binding.conversationId) return false;
+      if (disconnected || selectedTabUnavailable || !sameBinding(input?.binding, binding) || !nonce || input.nonce !== nonce || input.snapshot?.conversationId !== binding.conversationId) return false;
       const value = input.snapshot; nonce = null;
       if (!Array.isArray(value.models) || value.models.length > MAX_MODELS || !Array.isArray(value.requestIds) || value.requestIds.length > MAX_REQUEST_IDS) return false;
       const models = value.models.map(model => ({ id: opaque(model.id) ? model.id : null, label: opaque(model.label) ? model.label : null,
@@ -153,14 +184,18 @@ export async function createCompanionBridge({ config, secrets, store, onObservat
       } });
     },
     async disconnect() {
+      return admitBinding(async () => {
       disconnected = true; owners.clear(); binding = null; nonce = null; observation = null; observedAt = null;
       await persist(); return { status: 'disconnected' };
+      });
     },
     async enqueue(operation) {
-      if (!sameBinding(operation?.binding, binding)) throw new Error('Operation does not own the current browser binding');
+      return admitBinding(async () => {
+      if (disconnected || closing || selectedTabUnavailable || !sameBinding(operation?.binding, binding)) throw new Error('Operation does not own the current browser binding');
       if (operation.kind === 'send' && delivery) return delivery.enqueue(operation);
       if (operation.kind !== 'models') throw new Error('Only bound read-only model observations are enabled at this milestone');
       return { id: randomUUID() };
+      });
     },
     async close() { closing = true; owners.clear(); await Promise.allSettled([...active]); await new Promise(resolve => server.close(resolve)); },
   };

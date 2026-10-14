@@ -661,3 +661,83 @@ Final serial Node suite: **1333 tests, 1332 passes, 0 failures, 1 existing skip*
 and reported `final-node-suite-exit:0`; the tool also exited **0**. This run
 includes the driver lifecycle and accepted-execution lifetime corrections.
 Final independent whole-branch review and integration remain next.
+
+## Independent review follow-ups and personal automatic actions (2026-10-14)
+
+The independent reviewer found no critical defects and six important defects.
+Each has a regression that failed before the correction:
+
+- Live uncertainty now refreshes Resume in the running app, including later
+  observation-only final receipts. Reobserving the exact accepted user after a
+  provider block reconciles uncertainty without granting another Send.
+- Repeating Observe on the same selected chat preserves its lease/epoch and
+  original reply. Selecting another chat refuses unsettled Send, unimported
+  completion or unconfirmed Stop custody. Host renewal after settled Stop
+  still creates a fresh epoch. Temporary tab disappearance retains custody,
+  revokes page authority and allows observation when that same tab returns.
+- Native Core neither advertises nor executes `mcp_manage`/`composio` global
+  connection management. Discovery and execution share the boundary; API
+  behavior and structured workspace/project tools remain available.
+- Always allow persists for the browser teammate's live session across host
+  replacement, without granting another teammate or changing global defaults.
+- Missing/malformed/over-quota native images return an explicit unavailable
+  visual-state error. External images and managed browser captures share the
+  existing generation quota; normal API image behavior is preserved.
+- Clear removes cached local browser messages and its checklist while keeping
+  running jobs, file changes and spent native receipts intact.
+
+The actual bridge/runtime/ledger/desktop/browser/Stop affected set passed
+**65/65**, exit **0**, **19973 ms**. The ToolHost/API-images/browser-protocol
+set passed **44/44**, exit **0**, **20779 ms**. Those include real isolated
+browser round trips and connected-browser contract fixtures, not account
+substitutes. Rebuilt packaging, final full suite and reviewer recheck remain
+required after these changes.
+
+The user explicitly requested no repeated ANKITA approval cards. The existing
+`AUTO_APPROVE=true` preference was persisted in the normal and owned test
+profiles, preserving other settings and credentials; no customer-wide default
+was changed. A reopened actual packaged app completed the hosted check with
+`sends:1,finished:true,fileReadbackMatched:true,replyMatched:true,turnEnds:1,`
+`approvals:0,errors:0`. Its six calls were write/edit/read/command/two job waits.
+Independent job receipts confirmed `actualChildDone:true,exitCode:0,`
+`outputMatched:true`; both checks exited **0**. This account proof predates the
+review follow-up rebuild. ChatGPT's own account/app permissions remain its
+separate setup controls.
+
+The reviewer independently reproduced five corrected paths successfully, then
+found a remaining selection/Send timing race in the initial sequential guard.
+The shared bridge admission queue now serializes selection/tab changes and
+durable enqueue, and production Runtime uses that queue. A delayed Stop-custody
+read reproduced RED with an old-binding queued operation. GREEN rejected the
+losing Send before persistence: `pending:0,oldOperationCount:0,`
+`currentOperationCount:0`. The updated affected set passed **66/66**, exit **0**,
+**28863 ms**. Independent recheck cleared all six findings; no code-review
+blocker remains within that correction scope.
+
+The user subsequently requested a new release. Version **2.6.0** updates both
+root manifests, README, release notes and guides, including the earlier merged
+computer/skill/scheduling work. Release CI now prepares the pinned native
+resources before either signing branch; its packaging regression failed RED,
+then passed **3/3**, exit **0**. Dependency pins are unchanged.
+
+The final **2.6.0** Windows app directory built and packaged with exit **0**
+(renderer **4.42 s**). Independent ASAR comparison matched **15** source
+modules, version **2.6.0**, **two** publisher binaries and **five** notices.
+The actual packaged isolated lifecycle check exited **0** again: encrypted
+pairing/restart matched, explicit Resume imported once without replay, upload
+accepted, one native Stop confirmed, browser survived, no new restart helpers,
+three lifecycle Sends and `rendererErrors:[]`.
+
+The final rebuilt **actual hosted** Core check also exited **0**:
+`sends:1,finished:true,fileReadbackMatched:true,replyMatched:true,turnEnds:1,`
+`approvals:0,errors:0`. Six calls completed: write/edit/read/command/two waits.
+Independent current-operation receipts proved `actualChildDone:true,exitCode:0,`
+`outputMatched:true,nativeStatusReceipts:2,replyMatched:true`, exit **0**.
+The diagnostic reader excludes older same-binding jobs by the operation's
+dispatch time; its earlier aggregate mixed reused job IDs from old questions.
+That was a test-reader issue, not a changed product receipt.
+
+The latest full serial suite is running with a separate temporary config
+directory, preserving the user's saved automatic-action preference. Final
+integration, exact-commit remote workflow and installer publication remain
+pending at this checkpoint.

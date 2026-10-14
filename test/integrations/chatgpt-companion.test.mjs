@@ -9,6 +9,7 @@ import { observeBoundTab, trustedPopup } from '../../desktop/chatgpt-companion/b
 import { companionManifest, OBSERVATION_MAX_AGE_MS } from '../../services/chatgpt-bridge/config.mjs';
 import { BrowserOperationStore } from '../../src/integrations/chatgpt-browser/operation-store.mjs';
 import { BrowserDelivery } from '../../src/integrations/chatgpt-browser/delivery.mjs';
+import { ChatGptRuntime } from '../../src/integrations/chatgpt-browser/runtime.mjs';
 
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-companion-'));
 test.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
@@ -51,6 +52,105 @@ test('host renewal keeps the selected conversation and requires fresh observatio
     assert.equal(renewed.tabId, original.tabId); assert.equal(renewed.conversationId, original.conversationId);
     assert.equal(bridge.view().status, 'observing');
     assert.equal(await bridge.observe({ binding: original, nonce: poll.nonce, snapshot: { ...snapshot, conversationId } }), false);
+  } finally { await bridge.close(); }
+});
+
+test('Observe on the same selected chat preserves in-flight custody and imports its original reply', async () => {
+  const store = new BrowserOperationStore({ directory: path.join(workspace, crypto.randomUUID()) }), delivery = new BrowserDelivery({ store });
+  const bridge = await paired({ modelMode: 'current' }, delivery);
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    const priming = await bridge.poll(); await bridge.observe({ binding, nonce: priming.nonce, snapshot: { ...snapshot, conversationId } });
+    const runtime = new ChatGptRuntime({ bridge, store, delivery });
+    delivery.onEvent = event => runtime.deliveryEvent(event);
+    const sending = runtime.send({ threadId: config.threadId, text: 'original answer during repeated Observe' }); void sending.catch(() => {});
+    let operation;
+    for (let attempt = 0; attempt < 20 && !operation; attempt++) { await new Promise(resolve => setImmediate(resolve)); operation = (await store.list(binding))[0]; }
+    await bridge.poll(); await delivery.authorize(operation.id, binding, { baselineUserIds: [] });
+    const receipt = { conversationId, userMessageId: crypto.randomUUID(), turnId: crypto.randomUUID() };
+    await delivery.receipt(operation.id, binding, receipt);
+    const polling = await bridge.poll();
+    assert.deepEqual(await bridge.bind({ ...binding }), binding, 'Observe must retain the original lease and epoch');
+    assert.equal(await bridge.observe({ binding, nonce: polling.nonce, snapshot: { ...snapshot, conversationId, delivery: { operationId: operation.id, receipt,
+      answer: { ...receipt, assistantMessageId: crypto.randomUUID(), role: 'assistant', channel: 'final', end_turn: true, status: 'finished_successfully', text: 'original answer retained' } } } }), true);
+    assert.equal((await sending).text, 'original answer retained');
+    assert.equal((await store.list(binding)).length, 1, 'Observe grants no replacement Send');
+  } finally { await bridge.close(); }
+});
+
+test('changing the selected chat refuses unresolved Send and Stop custody, then permits a settled replacement', async () => {
+  const store = new BrowserOperationStore({ directory: path.join(workspace, crypto.randomUUID()) }), delivery = new BrowserDelivery({ store });
+  const bridge = await paired({ modelMode: 'current' }, delivery);
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    const replacement = { browserId, tabId: 2, conversationId: otherConversation, ...config };
+    const operation = { id: crypto.randomUUID(), binding, kind: 'send', text: 'keep original selected chat' };
+    await bridge.enqueue(operation);
+    for (const advance of [async () => {}, () => store.claim(operation.id, binding),
+      () => delivery.authorize(operation.id, binding, { baselineUserIds: [] })]) {
+      await advance();
+      await assert.rejects(bridge.bind(replacement), /Resume|Stop|unresolved/i);
+      assert.deepEqual(bridge.view().binding, binding);
+    }
+    const receipt = { conversationId, userMessageId: crypto.randomUUID(), turnId: crypto.randomUUID() };
+    await delivery.receipt(operation.id, binding, receipt); await delivery.block(binding, 'quota');
+    await assert.rejects(bridge.bind(replacement), /Resume|Stop|unresolved/i);
+    await delivery.stop(binding);
+    await assert.rejects(bridge.bind(replacement), /Stop|confirm/i);
+    const stop = await store.stopCommand(binding); await store.authorizeStop(stop.id, binding, receipt);
+    await delivery.observeStop(stop.id, binding, { receipt, confirmed: true });
+    const next = await bridge.bind(replacement);
+    assert.equal(next.conversationId, otherConversation); assert.notEqual(next.epoch, binding.epoch);
+    assert.equal((await store.get(operation.id)).outcome, 'stopped');
+  } finally { await bridge.close(); }
+});
+
+test('temporarily navigating away retains unresolved custody and cannot bypass replacement refusal', async () => {
+  const store = new BrowserOperationStore({ directory: path.join(workspace, crypto.randomUUID()) }), delivery = new BrowserDelivery({ store });
+  const bridge = await paired({ modelMode: 'current' }, delivery);
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    const priming = await bridge.poll(); await bridge.observe({ binding, nonce: priming.nonce, snapshot: { ...snapshot, conversationId } });
+    const operation = { id: crypto.randomUUID(), binding, kind: 'send', text: 'retain reply while navigating' };
+    await bridge.enqueue(operation); await bridge.poll(); await delivery.authorize(operation.id, binding, { baselineUserIds: [] });
+    const receipt = { conversationId, userMessageId: crypto.randomUUID(), turnId: crypto.randomUUID() };
+    await delivery.receipt(operation.id, binding, receipt);
+    await bridge.reportTabs({ browserId, tabs: [{ id: 2, url: `https://chatgpt.com/c/${otherConversation}` }] });
+    assert.deepEqual(bridge.view().binding, binding, 'lost tab visibility cannot erase an accepted Send');
+    assert.notEqual(bridge.view().status, 'ready');
+    assert.equal((await bridge.poll()).binding, null, 'an unavailable selected page receives no commands');
+    await assert.rejects(bridge.bind({ browserId, tabId: 2, conversationId: otherConversation, ...config }), /Resume|Stop|unresolved/i);
+    await assert.rejects(bridge.resolveRequestOwner({ leaseId: binding.leaseId, requestId: 'native-owned' }), /unavailable/i);
+    await bridge.reportTabs({ browserId, tabs: [{ id: 1, url: `https://chatgpt.com/c/${conversationId}` }] });
+    assert.deepEqual(await bridge.bind({ ...binding }), binding);
+    const polling = await bridge.poll(); assert.equal(polling.readback.id, operation.id);
+    assert.equal(await bridge.observe({ binding, nonce: polling.nonce, snapshot: { ...snapshot, conversationId, delivery: { operationId: operation.id, receipt,
+      answer: { ...receipt, assistantMessageId: crypto.randomUUID(), role: 'assistant', channel: 'final', end_turn: true, status: 'finished_successfully', text: 'original reply after navigation' } } } }), true);
+    assert.equal((await store.get(operation.id)).outcome, 'completed');
+    assert.equal((await store.list(binding)).length, 1);
+  } finally { await bridge.close(); }
+});
+
+test('binding replacement and Send admission serialize so a concurrent question cannot be stranded', async () => {
+  const store = new BrowserOperationStore({ directory: path.join(workspace, crypto.randomUUID()) }), delivery = new BrowserDelivery({ store });
+  const bridge = await paired({ modelMode: 'current' }, delivery);
+  try {
+    const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+    const priming = await bridge.poll(); await bridge.observe({ binding, nonce: priming.nonce, snapshot: { ...snapshot, conversationId } });
+    const runtime = new ChatGptRuntime({ bridge, store, delivery });
+    let entered, release;
+    const checking = new Promise(resolve => { entered = resolve; }), paused = new Promise(resolve => { release = resolve; });
+    const original = store.stopCommand.bind(store);
+    store.stopCommand = async owner => { entered(); await paused; return original(owner); };
+    const replacement = bridge.bind({ browserId, tabId: 2, conversationId: otherConversation, ...config }); void replacement.catch(() => {});
+    await checking;
+    const sending = runtime.send({ threadId: config.threadId, text: 'do not strand this concurrent question' }); void sending.catch(() => {});
+    for (let attempt = 0; attempt < 20 && !runtime.pending.size; attempt++) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(runtime.pending.size, 1);
+    release(); await replacement;
+    assert.equal((await store.list(binding)).length, 0, 'a losing admission cannot persist on the old selection');
+    await assert.rejects(sending, /binding|connection|selection/i);
+    assert.equal(runtime.pending.size, 0);
   } finally { await bridge.close(); }
 });
 

@@ -20,16 +20,16 @@ export class BrowserDelivery {
   }
   async fail(id, binding) {
     const row = await this.store.fail(id, binding);
-    this.onEvent({ type: row.outcome, operationId: id, binding }); return row;
+    await this.onEvent({ type: row.outcome, operationId: id, binding }); return row;
   }
   async receipt(id, binding, receipt) {
     const fresh = await this.store.accept(id, binding, receipt);
-    if (fresh) this.onEvent({ type: 'accepted', operationId: id, binding, receipt: (await this.store.get(id)).receipt });
+    if (fresh) await this.onEvent({ type: 'accepted', operationId: id, binding, receipt: (await this.store.get(id)).receipt });
     return fresh;
   }
   async observe(id, binding, answer) {
     const fresh = await this.store.complete(id, binding, this.transform(answer));
-    if (fresh) this.onEvent({ type: 'completed', operationId: id, binding, completion: (await this.store.get(id)).completion });
+    if (fresh) await this.onEvent({ type: 'completed', operationId: id, binding, completion: (await this.store.get(id)).completion });
     return fresh;
   }
   async progress(id, binding, answer) {
@@ -37,11 +37,16 @@ export class BrowserDelivery {
     if (!row || row.outcome !== OPERATION_OUTCOMES.accepted || !sameOperationBinding(row.binding, binding)) return false;
     const progress = publicReply(binding, row.receipt, this.transform(answer));
     if (!progress) return false;
-    this.onEvent({ type: 'progress', operationId: id, binding, progress }); return true;
+    await this.onEvent({ type: 'progress', operationId: id, binding, progress }); return true;
   }
   recover(binding) { return this.store.recover(binding); }
+  async canReplaceBinding(binding) {
+    const rows = await this.store.list(binding), stop = await this.store.stopCommand(binding);
+    return !rows.some(row => !row.consumed && ![OPERATION_OUTCOMES.stopped, OPERATION_OUTCOMES.rejected].includes(row.outcome)) &&
+      (!stop || stop.phase === STOP_PHASES.confirmed);
+  }
   async block(binding, reason) {
-    for (const row of await this.store.block(binding, reason)) this.onEvent({ type: 'blocked', operationId: row.id, binding, reason });
+    for (const row of await this.store.block(binding, reason)) await this.onEvent({ type: 'blocked', operationId: row.id, binding, reason });
   }
   stop(binding) { return this.store.stop(binding); }
   async pollStop(binding) {
@@ -55,7 +60,7 @@ export class BrowserDelivery {
   authorizeStop(id, binding, witness) { return this.store.authorizeStop(id, binding, witness); }
   async observeStop(id, binding, value) {
     const fresh = await this.store.settleStop(id, binding, value);
-    if (fresh) this.onEvent({ type: value.confirmed === true ? 'stop-confirmed' : 'stop-uncertain', binding });
+    if (fresh) await this.onEvent({ type: value.confirmed === true ? 'stop-confirmed' : 'stop-uncertain', binding });
     return fresh;
   }
 }

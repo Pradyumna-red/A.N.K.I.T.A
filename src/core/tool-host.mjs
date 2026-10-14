@@ -29,6 +29,7 @@ export const MAX_TOOL_CALLS = 60;
 export const MAX_WEB_SEARCHES_PER_TURN = 6;
 export const MAX_REPEAT_CALLS = 3;
 const FILE_WORKER_TOOLS = new Set(['search_files', 'glob', 'list_dir', 'read_file']);
+const NATIVE_CONNECTION_MANAGEMENT_TOOLS = new Set(['mcp_manage', 'composio']); // Native models use already connected capabilities; the desktop owner controls global connection settings.
 const DEFAULT_OUTPUT_COLUMNS = 80; // Terminal columns when no interactive TTY supplies a width.
 const CANCELLED = 'Action cancelled by user.';
 const DENIED = 'The user denied permission for this action. Do not retry it; ask what to do instead.';
@@ -36,9 +37,27 @@ const MCP_PREFIX = 'mcp__'; // Existing namespaced registry contract.
 const MCP_MODE = TOOL_RESULT_MODE.mcp;
 const READ_ONLY_DENIAL = 'Error: this host is read-only.';
 const JOB_STOP_WAIT_MS = 5000; // Milliseconds/owned job termination before native Stop acknowledges completion.
+const NATIVE_IMAGE_LIMIT_NOTICE = 'Omitted visual state is unavailable: the image limit for this generation was reached. Do not infer the undelivered image contents.';
+const NATIVE_IMAGE_INVALID_NOTICE = 'Omitted visual state is unavailable: image data failed format or size validation. Do not infer the undelivered image contents.';
 const stoppingJobs = new WeakMap(); // Shared workflow hosts terminate each owned child only once concurrently.
 const automaticApproval = ctx => ctx.autoApprove === undefined ? ctx.config.autoApprove === true : ctx.autoApprove === true; // Current host policy wins over an older config snapshot.
 const textResult = text => ({ content: [{ type: 'text', text: String(text) }], isError: isToolFailure(String(text)) || text === CANCELLED || text === DENIED });
+function nativeProjection(result, state, budget, targets = null) {
+  const images = [], omissions = new Set();
+  for (const part of result.content) {
+    if (result.isError || part?.type !== 'image') continue;
+    if (!validMcpImage(part)) { omissions.add(NATIVE_IMAGE_INVALID_NOTICE); continue; }
+    if ((state.nativeImagesThisTurn || 0) >= MAX_MCP_IMAGES_PER_TURN) { omissions.add(NATIVE_IMAGE_LIMIT_NOTICE); continue; }
+    images.push({ type: 'image', mimeType: part.mimeType, data: part.data });
+    state.nativeImagesThisTurn = (state.nativeImagesThisTurn || 0) + 1;
+  }
+  const notice = omissions.size ? capOutput([...omissions].join('\n') + '\n', budget) : '';
+  const targetText = formatComputerTargets(targets, Math.max(0, budget - Buffer.byteLength(notice)));
+  const remaining = Math.max(0, budget - Buffer.byteLength(notice) - Buffer.byteLength(targetText));
+  const text = result.content.filter(part => part?.type === 'text').map(part => part.text).join('\n');
+  return { content: [{ type: 'text', text: notice + (remaining ? capOutput(text, remaining) : '') + targetText }, ...images],
+    isError: result.isError || omissions.size > 0 };
+}
 function deniedTier(decision, mcp, name) {
   mcp.recordTierDecision?.(name, 'denied');
   return textResult(`Error: ${decision.label} is blocked by the approval tiers. Do not retry it; ask the user whether the tier rule should change.`);
@@ -67,7 +86,7 @@ export class ToolHost {
   specs(surface = NATIVE_TOOL_SURFACES.core) {
     const ctx = this.currentContext();
     if (!Object.values(NATIVE_TOOL_SURFACES).includes(surface)) throw new Error('Unknown native tool surface');
-    const local = specs.filter(spec => (spec.function.name === TOOL_DISCOVERY_NAME || (surface !== NATIVE_TOOL_SURFACES.plugins &&
+    const local = specs.filter(spec => !NATIVE_CONNECTION_MANAGEMENT_TOOLS.has(spec.function.name) && (spec.function.name === TOOL_DISCOVERY_NAME || (surface !== NATIVE_TOOL_SURFACES.plugins &&
       (surface === NATIVE_TOOL_SURFACES.desktop ? spec.function.name === 'browser' : spec.function.name !== 'browser'))) &&
       (!ctx.allowedTools || ctx.allowedTools.has(spec.function.name)) &&
       (!ctx.readOnly || isReadOnly(spec.function.name, {}, ctx))).map(spec => ({
@@ -178,17 +197,7 @@ export class ToolHost {
       isError: Boolean(result?.isError || raw?.isError) };
     if (resultMode !== MCP_MODE) return nativeResult;
     const targets = native?.serverId === COMPUTER_MCP_ID ? computerObservationTargets(nativeResult) : null;
-    const targetText = formatComputerTargets(targets, budget);
-    const remaining = Math.max(0, budget - Buffer.byteLength(targetText));
-    const text = nativeResult.content.filter(part => part?.type === 'text').map(part => part.text).join('\n');
-    const content = [{ type: 'text', text: (remaining ? capOutput(text, remaining) : '') + targetText }];
-    for (const part of nativeResult.content) {
-      if (!nativeResult.isError && part?.type === 'image' && validMcpImage(part) && (state.nativeImagesThisTurn || 0) < MAX_MCP_IMAGES_PER_TURN) {
-        content.push({ type: 'image', mimeType: part.mimeType, data: part.data });
-        state.nativeImagesThisTurn = (state.nativeImagesThisTurn || 0) + 1;
-      }
-    }
-    return { content, isError: nativeResult.isError };
+    return nativeProjection(nativeResult, state, budget, targets);
   }
 
   async executeLocal(call, args, ctx, state, resultMode, budget) {
@@ -238,10 +247,10 @@ export class ToolHost {
     const result = textResult(capOutput(output, budget));
     if (resultMode === MCP_MODE && tool.name === 'browser' && args.action === 'screenshot' && !result.isError) {
       const image = browserScreenshotImage(output, ctx);
-      if (image) {
-        const [mimeType, data] = image.dataUrl.slice('data:'.length).split(';base64,');
-        result.content.push({ type: 'image', mimeType, data });
-      }
+      if (!image) return nativeProjection({ content: [{ type: 'text', text: NATIVE_IMAGE_INVALID_NOTICE }], isError: true }, state, budget);
+      const [mimeType, data] = image.dataUrl.slice('data:'.length).split(';base64,');
+      result.content.push({ type: 'image', mimeType, data });
+      return nativeProjection(result, state, budget);
     }
     return result;
   }

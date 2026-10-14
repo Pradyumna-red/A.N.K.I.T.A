@@ -471,10 +471,11 @@ export class DesktopEngine {
     if (selected.workspacePath !== binding.workspacePath) throw new Error('Native tool workspace no longer owns this browser connection');
     this.browserToolStates ??= new Map();
     const key = binding.leaseId;
-    if (!this.browserToolStates.has(key)) this.browserToolStates.set(key, { activatedTools: new Set(), todos: this._savedThread(binding.threadId).todos });
+    if (!this.browserToolStates.has(key)) this.browserToolStates.set(key, { ownerThreadId: binding.threadId, activatedTools: new Set(), todos: this._savedThread(binding.threadId).todos }); // Host-only ownership lets Clear reset presentation without discarding running jobs or spent receipts.
     const context = () => {
       if (this.browserContext(binding.threadId).workspacePath !== binding.workspacePath) throw new Error('Native tool workspace changed');
       return { ...selected, cwd: binding.workspacePath, config: { ...this.config, [COMPUTER_DIRECT_CONFIG]: true },
+        autoApprove: this.browserAutomaticThreads?.has(binding.threadId) === true || this.config.autoApprove === true, // A live teammate grant survives tool-host/lease replacement without changing another teammate's policy.
         state: this.browserToolStates.get(key), mcp: this.mcp, browserManager: this.browserManager,
         beforeComputerAction: (record, options) => this.computerUse.preparePointer(record, options),
         browserThreadId: binding.threadId, skillsEnabled: true, disabledSkills: new Set(this.desktopSettings.data.disabledSkills ?? []),
@@ -1187,6 +1188,10 @@ export class DesktopEngine {
     if (answer === 'always') {
       const agent = this.agents.get(entry.threadId);
       if (agent) agent.autoApprove = true;
+      else if (this.config?.provider === CHATGPT_BROWSER_PROVIDER) {
+        this.browserAutomaticThreads ??= new Set();
+        this.browserAutomaticThreads.add(entry.threadId);
+      }
     }
     return this.approvals.respond(requestId, answer);
   }
@@ -1202,6 +1207,8 @@ export class DesktopEngine {
     const agent = this.agents.get(id);
     agent?.clear();
     if (agent?.state) agent.state.todos = [];
+    this.browserNativeMessages?.delete(id);
+    for (const state of this.browserToolStates?.values() ?? []) if (state.ownerThreadId === id) state.todos = [];
     try { fs.unlinkSync(this.sessionFile(id)); } catch (err) { if (err.code !== 'ENOENT') throw err; }
     this.teammates.touch(id, '');
     this.emit({ type: 'thread-cleared', threadId: id });

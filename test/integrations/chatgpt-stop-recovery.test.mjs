@@ -115,6 +115,44 @@ test('restart holds unsent work and explicit resume reads an accepted reply with
   assert.equal((await store.list(binding)).filter(row => row.text === 'new explicit question').length, 0);
 });
 
+test('a live lost reply exposes Resume and later observation-only completion updates it without a new Send', async t => {
+  const { store, delivery } = await fixture(t);
+  const notices = [];
+  const runtime = new ChatGptRuntime({ store, delivery, bridge: { view: () => ({ status: 'ready', binding, models: [] }) }, onEvent: event => notices.push(event) });
+  delivery.onEvent = event => runtime.deliveryEvent(event);
+  const sending = runtime.send({ threadId: binding.threadId, text: 'lost live reply question' }); void sending.catch(() => {});
+  let operation;
+  for (let attempt = 0; attempt < 20 && !operation; attempt++) { await new Promise(resolve => setImmediate(resolve)); operation = (await store.list(binding)).find(row => row.text === 'lost live reply question'); }
+  await store.claim(operation.id, binding); await store.dispatch(operation.id, binding, { baselineUserIds: [] });
+  await delivery.fail(operation.id, binding); await assert.rejects(sending, /could not be confirmed/);
+  assert.deepEqual(runtime.recoverable, [{ id: operation.id, outcome: 'uncertain' }], 'the active app must offer recovery without a restart');
+  await assert.rejects(runtime.send({ threadId: binding.threadId, text: 'do not send this' }), /Resume/);
+  const count = (await store.list(binding)).length;
+  await delivery.receipt(operation.id, binding, receipt);
+  await delivery.observe(operation.id, binding, { ...receipt, assistantMessageId: crypto.randomUUID(), role: 'assistant', channel: 'final', end_turn: true, status: 'finished_successfully', text: 'observed recovered answer' });
+  assert.deepEqual(runtime.recoverable, [{ id: operation.id, outcome: 'completed' }], 'a final observed without an active caller must refresh the Resume row');
+  assert.equal((await runtime.resume({ threadId: binding.threadId, operationId: operation.id })).text, 'observed recovered answer');
+  assert.equal((await store.list(binding)).length, count);
+  assert.ok(notices.some(event => event.type === 'completed'));
+});
+
+test('resolving a provider block can reaccept the exact prior user receipt and complete it without replay', async t => {
+  const { store, delivery, operation } = await fixture(t);
+  await store.claim(operation.id, binding); await store.dispatch(operation.id, binding, { baselineUserIds: [] }); await delivery.receipt(operation.id, binding, receipt);
+  const runtime = new ChatGptRuntime({ store, delivery, bridge: { view: () => ({ status: 'ready', binding, models: [] }) } });
+  delivery.onEvent = event => runtime.deliveryEvent(event);
+  await delivery.block(binding, 'quota');
+  assert.equal((await store.get(operation.id)).outcome, 'uncertain');
+  assert.deepEqual(runtime.recoverable, [{ id: operation.id, outcome: 'uncertain' }]);
+  assert.equal(await delivery.receipt(operation.id, binding, receipt), true, 'the exact same accepted user can leave uncertainty once observed again');
+  assert.equal((await store.get(operation.id)).outcome, 'accepted');
+  const resumed = runtime.resume({ threadId: binding.threadId, operationId: operation.id });
+  await new Promise(resolve => setImmediate(resolve));
+  await delivery.observe(operation.id, binding, { ...receipt, assistantMessageId: crypto.randomUUID(), role: 'assistant', channel: 'final', end_turn: true, status: 'finished_successfully', text: 'same owned answer after block' });
+  assert.equal((await resumed).text, 'same owned answer after block');
+  assert.equal((await store.list(binding)).length, 1);
+});
+
 test('Stop during connection preparation cannot renew or enqueue a late message', async t => {
   const { store, delivery } = await fixture(t);
   let entered, release;

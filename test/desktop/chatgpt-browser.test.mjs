@@ -141,6 +141,50 @@ test('desktop native ToolHost retains the bound workspace and publishes real too
   assert.ok(engine.loadThread(teammate.id).some(message => message.role === 'tool' && message.name === 'write_file'));
 });
 
+test('Always allow applies to later native hosts for that teammate without granting another teammate approval', async t => {
+  const { engine, events } = fixture(t);
+  await engine.init(); engine.config.autoApprove = false;
+  const teammate = engine.createTeammate({ name: 'Always browser teammate' });
+  const owner = engine.browserContext(teammate.id);
+  const first = engine.toolHostForBrowser({ ...owner, leaseId: 'first-approval-lease' }).execute({ id: 'first-approved-write', name: 'write_file', arguments: { path: 'first-allowed.txt', content: 'first approved bytes' } }, { surface: 'core' });
+  for (let attempt = 0; attempt < 20 && !engine.listApprovals().length; attempt++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(engine.listApprovals().length, 1);
+  assert.equal(engine.respondApproval(engine.listApprovals()[0].requestId, 'always'), true);
+  assert.equal((await first).isError, false);
+  let completed;
+  const second = engine.toolHostForBrowser({ ...owner, leaseId: 'renewed-approval-lease' }).execute({ id: 'later-native-write', name: 'write_file', arguments: { path: 'later-allowed.txt', content: 'later automatic bytes' } }, { surface: 'core' }).then(result => (completed = result));
+  for (let attempt = 0; attempt < 20 && !completed && !engine.listApprovals().length; attempt++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(engine.listApprovals().length, 0, 'Always must apply beyond the currently approved call and old lease');
+  assert.equal((await second).isError, false);
+  assert.equal(fs.readFileSync(path.join(owner.workspacePath, 'later-allowed.txt'), 'utf8'), 'later automatic bytes');
+  const other = engine.createTeammate({ name: 'Separate approval teammate' });
+  const otherContext = engine.browserContext(other.id);
+  const separate = engine.toolHostForBrowser({ ...otherContext, leaseId: 'separate-approval-lease' }).execute({ id: 'separate-native-write', name: 'write_file', arguments: { path: 'other-denied.txt', content: 'never written' } }, { surface: 'core' });
+  for (let attempt = 0; attempt < 20 && !engine.listApprovals().length; attempt++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(engine.listApprovals().length, 1);
+  engine.respondApproval(engine.listApprovals()[0].requestId, 'no');
+  assert.equal((await separate).isError, true);
+  assert.equal(fs.existsSync(path.join(otherContext.workspacePath, 'other-denied.txt')), false);
+  assert.equal(events.filter(event => event.type === 'approval-request').length, 2);
+  assert.equal(engine.config.autoApprove, false, 'a teammate grant is not a global policy change');
+});
+
+test('clearing a browser conversation removes cached messages and its old checklist from later tool results', async t => {
+  const { engine } = fixture(t);
+  await engine.init(); const teammate = engine.createTeammate({ name: 'Clear browser teammate' });
+  await engine.send(teammate.id, 'unique desktop question'); await engine.waitForTurn(teammate.id);
+  const owner = { ...engine.browserContext(teammate.id), leaseId: 'clear-native-lease' };
+  const host = engine.toolHostForBrowser(owner);
+  assert.equal((await host.execute({ id: 'old-checklist-call', name: 'write_todos', arguments: { todos: [{ id: 'old-checklist', content: 'Old private checklist', status: 'pending' }] } }, { surface: 'core' })).isError, false);
+  assert.ok(engine.loadThread(teammate.id).some(row => row.role === 'assistant' && row.content === 'unique browser answer'));
+  engine.clearThread(teammate.id);
+  assert.deepEqual(engine.loadThread(teammate.id), [], 'Clear must remove both saved and live browser history');
+  const later = await host.execute({ id: 'later-directory-call', name: 'list_dir', arguments: { path: '.' } }, { surface: 'core' });
+  assert.equal(later.isError, false);
+  assert.equal(engine.loadThread(teammate.id).some(row => row.name === 'write_todos'), false, 'a later native result must not restore the cleared checklist');
+  assert.equal(engine.loadThread(teammate.id).some(row => row.content === 'unique browser answer'), false);
+});
+
 test('bound desktop native gateway performs real write/edit/readback and command with exact ownership and no API client', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-desktop-native-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

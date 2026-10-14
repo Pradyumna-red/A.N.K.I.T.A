@@ -6,7 +6,8 @@ floating companion and a terminal CLI.
 
 Ask it to inspect a repository, edit files, run commands, research a page or
 handle a recurring task. Tool activity, results and approval requests stay in the
-conversation. Choose GitHub Copilot, Groq, Kilo or an OpenAI-compatible provider.
+conversation. Choose ChatGPT Browser, GitHub Copilot, Groq, Kilo or an
+OpenAI-compatible provider.
 
 [Download for Windows](https://github.com/akyourowngames/A.N.K.I.T.A/releases/latest)
  · [Release notes](CHANGELOG.md)
@@ -25,7 +26,21 @@ They use the same agent runtime and tools. Desktop teammates have separate
 threads, personas and drafts; assign a project to give a teammate its working
 folder and shared context.
 
-## What's new in 2.5.2
+## What's new in 2.6.0
+
+Use your already-open ChatGPT conversation from ANKITA. Messages, attachments
+and replies stay tied to the chat you choose; its current model and account
+limits apply. Separate Core, Desktop and Plugins connections let ChatGPT use
+ANKITA's files, commands, browser and computer controls. Stop ends owned work,
+and Resume reads the original reply after a restart without sending it again.
+See the [ChatGPT Browser setup guide](docs/guides/chatgpt-browser.md).
+
+This release also brings native Windows Computer Use, a visible animated
+pointer, better menu layering, skill authoring tools and useful schedule
+templates. The [release notes](CHANGELOG.md#260---2026-10-14) cover the changes
+and verification limits.
+
+## Desktop startup repair in 2.5.2
 
 The desktop now starts correctly in development and packaged Windows builds.
 A shared browser metadata import previously reached host-only code that the

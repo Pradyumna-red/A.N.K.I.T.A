@@ -155,3 +155,54 @@ test('native discovery advertises only interfaces callable on its own surface an
   const desktop = await host.execute(call('find_tools', { query: COMPUTER_MCP_ID, scope: 'general' }), { surface: 'desktop' });
   assert.equal(desktop.isError, false); assert.ok(text(desktop).includes(nativeName));
 });
+
+test('native Core neither advertises nor executes global connection management while keeping workspace tools', async () => {
+  const state = { activatedTools: new Set() };
+  const host = new ToolHost({ context: { ...context, readOnly: false, state } });
+  const published = host.specs('core').map(tool => tool.name);
+  for (const name of ['mcp_manage', 'composio']) {
+    assert.equal(published.includes(name), false, 'connection settings belong to the desktop owner');
+    const result = await host.execute(call(name, { action: 'add' }), { surface: 'core' });
+    assert.equal(result.isError, true);
+    assert.match(text(result), /unavailable.*native surface/);
+    await host.execute(call('find_tools', { query: name, scope: 'general' }), { surface: 'core' });
+    assert.equal(state.activatedTools.has(name), false);
+  }
+  assert.ok(published.includes('write_file'));
+  assert.ok(published.includes('run_command'));
+});
+
+test('native image limits and malformed images return an explicit visual omission instead of a successful screenshot', async () => {
+  const image = { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' };
+  let returnedImage = image;
+  const mcp = { findTool: () => ({ tool: { annotations: { readOnlyHint: true } } }), needsApproval: () => false,
+    callToolResult: async () => ({ content: [{ type: 'text', text: 'fresh screenshot' }, returnedImage], isError: false }) };
+  const host = new ToolHost({ context, mcp });
+  for (let index = 0; index < 6; index++) {
+    const result = await host.execute(call('mcp__proof__read'));
+    assert.equal(result.isError, false); assert.equal(result.content.filter(part => part.type === 'image').length, 1);
+  }
+  const limited = await host.execute(call('mcp__proof__read'));
+  assert.equal(limited.content.filter(part => part.type === 'image').length, 0);
+  assert.equal(limited.isError, true, 'an undelivered screenshot cannot be reported as complete');
+  assert.match(text(limited), /visual.*unavailable/i); assert.match(text(limited), /image.*limit/i);
+  returnedImage = { ...image, data: '<invalid>' };
+  const malformed = await new ToolHost({ context: { ...context, config: { maxToolChars: 256 } }, mcp }).execute(call('mcp__proof__read'));
+  assert.equal(malformed.isError, true); assert.match(text(malformed), /visual.*unavailable/i);
+  assert.equal(malformed.content.filter(part => part.type === 'image').length, 0);
+  assert.ok(Buffer.byteLength(text(malformed)) <= 256);
+});
+
+test('managed browser captures share the native generation image limit with external MCP images', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGXYAAAAASUVORK5CYII=', 'base64');
+  const relative = 'downloaded-images/browser-1-11111111-1111-1111-1111-111111111111.png';
+  fs.mkdirSync(path.dirname(path.join(directory, relative)), { recursive: true }); fs.writeFileSync(path.join(directory, relative), png);
+  const mcp = { findTool: () => ({ tool: { annotations: { readOnlyHint: true } } }), needsApproval: () => false,
+    callToolResult: async () => ({ content: [{ type: 'image', mimeType: 'image/png', data: png.toString('base64') }], isError: false }) };
+  const browserManager = { run: async () => JSON.stringify({ type: 'browser_screenshot', path: relative, bytes: png.length }) };
+  const host = new ToolHost({ context: { ...context, browserManager }, mcp });
+  for (let index = 0; index < 6; index++) assert.equal((await host.execute(call('mcp__proof__read'))).isError, false);
+  const screenshot = await host.execute(call('browser', { action: 'screenshot' }));
+  assert.equal(screenshot.content.filter(part => part.type === 'image').length, 0, 'the managed adapter cannot bypass the native image quota');
+  assert.equal(screenshot.isError, true); assert.match(text(screenshot), /visual.*unavailable/i);
+});

@@ -49,6 +49,11 @@ your selected chat. Core's file tools cannot act through the Desktop app.
 Desktop actions retain ANKITA's owned pointer and the
 existing no-prompt behavior; blocked tool tiers remain blocked.
 
+For ordinary file and command cards, **Always allow** applies to later browser
+actions for that teammate during this app session. Your saved automatic-action
+setting also applies to browser tools. Core uses already connected tools;
+changing global plugin or MCP connections remains in ANKITA's settings.
+
 If the driver says its session has ended, stop computer control and connect
 again yourself. ANKITA does not silently restart a stopped computer session.
 
@@ -77,6 +82,12 @@ previous accepted or uncertain reply appears as **Resume saved reply**. Resume
 reads that reply's original receipt; it does not repeat a tool action. If the
 remembered port or secure storage is unavailable, create a new pairing link.
 Disconnect is remembered and requires an explicit new connection.
+
+Recovery also updates while ANKITA stays open. Observing the same chat keeps
+its original reply. Before choosing a different chat, resume the unsettled
+reply or finish Stop confirmation. If the selected tab temporarily disappears,
+ANKITA keeps its receipt and waits for that same tab instead of losing it.
+Clear removes the local chat and checklist without forgetting action receipts.
 
 ChatGPT quota, authorization, model and refusal notices stop this path. Check
 the actual notice in the selected chat before resuming. ANKITA does not switch

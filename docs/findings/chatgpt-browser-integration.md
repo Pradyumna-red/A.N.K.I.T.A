@@ -25,7 +25,9 @@ One uploaded text file produced its exact content once in saved history.
 Abrupt restart retained the original accepted question; explicit Resume imported
 its correlated reply once with no new operation or native helper launch.
 The final serial suite passed 1332/1333 with one existing skip and zero failures.
-Final independent review remains the integration gate.
+Independent whole-branch review found six important follow-ups. Their fixes
+are now implemented; the final rebuilt/full-suite checks and reviewer recheck
+remain the integration gate.
 
 Known boundaries:
 
@@ -93,8 +95,9 @@ receipt. Admission now retains the actual execution promise independently of
 the socket, and gateway teardown drains it before closing the SDK. The new
 regression failed before the correction, then all 35 host/gateway/ownership/Stop
 checks passed. It also proves that an exact retry after gateway restart returns
-the durable actual result with one write/approval. Hosted Stop must be retried
-against the rebuilt app; different provider call tokens remain distinct calls.
+the durable actual result with one write/approval. The subsequent rebuilt
+hosted Stop gate passed as recorded above; different provider call tokens
+remain distinct calls.
 
 Driver lifecycle finding: the actual driver publishes strict `list_windows`
 without a session argument, while window-state/actions accept a named session.
