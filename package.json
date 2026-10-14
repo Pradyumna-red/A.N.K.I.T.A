@@ -1,6 +1,6 @@
 {
   "name": "ankita",
-  "version": "2.5.2",
+  "version": "2.6.0",
   "private": true,
   "type": "module",
   "description": "Terminal coding agent powered by GitHub Copilot models, with shell and file-editing tools.",
@@ -27,10 +27,11 @@
     "desktop:build": "tsc --noEmit -p desktop/tsconfig.json && vite build --config desktop/vite.config.ts",
     "desktop:start": "electron .",
     "desktop:icon": "node desktop/scripts/make-icon.mjs",
-    "desktop:pack": "npm run desktop:build && electron-builder --dir --config desktop/packaging/electron-builder.yml",
-    "desktop:package": "npm run desktop:build && electron-builder --publish never --config desktop/packaging/electron-builder.yml",
-    "desktop:package:win": "npm run desktop:build && electron-builder --win --publish never --config desktop/packaging/electron-builder.yml",
-    "desktop:release": "npm run desktop:build && electron-builder --win --publish always --config desktop/packaging/electron-builder.yml"
+    "desktop:resources": "node scripts/prepare-chatgpt-resources.mjs",
+    "desktop:pack": "npm run desktop:resources && npm run desktop:build && electron-builder --dir --config desktop/packaging/electron-builder.yml",
+    "desktop:package": "npm run desktop:resources && npm run desktop:build && electron-builder --publish never --config desktop/packaging/electron-builder.yml",
+    "desktop:package:win": "node scripts/prepare-chatgpt-resources.mjs --target win32-x64 && npm run desktop:build && electron-builder --win --publish never --config desktop/packaging/electron-builder.yml",
+    "desktop:release": "node scripts/prepare-chatgpt-resources.mjs --target win32-x64 && npm run desktop:build && electron-builder --win --publish always --config desktop/packaging/electron-builder.yml"
   },
   "devDependencies": {
     "@fontsource-variable/instrument-sans": "5.3.0",
@@ -47,6 +48,8 @@
     "vite": "6.4.3"
   },
   "dependencies": {
+    "@modelcontextprotocol/node": "2.1.1",
+    "@modelcontextprotocol/server": "2.3.1",
     "chrome-devtools-mcp": "1.10.1",
     "electron-updater": "^6.8.9",
     "playwright": "1.63.0"

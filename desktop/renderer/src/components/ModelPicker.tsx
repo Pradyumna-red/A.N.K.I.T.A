@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Model } from '../../../shared/wire';
 import { Icon } from './Icons';
 import { formatTokens } from '../lib/format';
+import { CHATGPT_BROWSER_PROVIDER, CHATGPT_CURRENT_MODEL_LABEL } from '../../../shared/chatgpt-browser.mjs';
 
 /** Searchable model chooser: vendors grouped, context and tool support inline. */
-export function ModelPicker({ models, value, onChange, openUp = false }: { models: Model[]; value: string; onChange: (id: string) => void; openUp?: boolean }) {
+export function ModelPicker({ models, value, onChange, openUp = false, provider }: { models: Model[]; value: string; onChange: (id: string) => void; openUp?: boolean; provider?: string }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const wrap = useRef<HTMLDivElement>(null);
@@ -32,6 +33,8 @@ export function ModelPicker({ models, value, onChange, openUp = false }: { model
     }
     return [...byVendor.entries()];
   }, [models, query]);
+
+  if (provider === CHATGPT_BROWSER_PROVIDER) return <div className="model-picker"><span className="model-picker-button" title="Change the model in your selected ChatGPT chat."><span className="model-picker-label">Browser</span><strong>{CHATGPT_CURRENT_MODEL_LABEL}</strong></span></div>;
 
   return <div className={`model-picker ${openUp ? 'model-picker-up' : ''}`} ref={wrap}>
     <button type="button" className="model-picker-button" onClick={() => setOpen(!open)} aria-haspopup="listbox" aria-expanded={open}>

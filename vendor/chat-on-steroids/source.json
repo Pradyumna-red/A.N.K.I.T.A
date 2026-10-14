@@ -1,0 +1,62 @@
+{
+  "repository": "https://github.com/totec448-spec/chat-on-steroids",
+  "commit": "34f4b73cc242b63acd4be5ba4e4fb74a5cdb99e5",
+  "license": "MIT",
+  "packageVersion": "2.1.34",
+  "files": [
+    {
+      "file": "extension/chatgpt-dom.js",
+      "sha256": "34dba12f6147bc546093241c77fc673fc609b18523be459536e5bbb07108fa24",
+      "functions": [
+        "onKeptPage",
+        "composerCssVisible",
+        "composer",
+        "insertPrompt",
+        "sendControls",
+        "sendButton",
+        "sendButtonEnabled",
+        "send",
+        "localeFreeSendControls",
+        "stopControls",
+        "stopButton",
+        "stopGeneration",
+        "composerFileName",
+        "hasComposerAttachments",
+        "composerAttachmentNames",
+        "uploadImages"
+      ]
+    },
+    {
+      "file": "extension/fiber.js",
+      "sha256": "830133e75e74479049b7e3aa45eea093b4d68f665d0feda890438a5e627224f0",
+      "functions": [
+        "str",
+        "committedPath",
+        "fiberOf",
+        "turnMessagesOf",
+        "turnViewOf",
+        "messagesFromTurnView",
+        "conversationEvidenceOf",
+        "readPickerSnapshot",
+        "readShellPickerSnapshot",
+        "shellProExecutionModel",
+        "shellLaneTransportEffort",
+        "shellTurnSource",
+        "shellItemText",
+        "unescapeFallbackMarkdown",
+        "turnEndMessageId"
+      ]
+    },
+    {
+      "file": "extension/usage.js",
+      "sha256": "b962735665d81f31afb352bd202d056aad395870a97721390d331a34b06f5c88",
+      "functions": [
+        "readOrigin",
+        "inspectRequestOrigins",
+        "inspectSocketMessage",
+        "installSocketObserver",
+        "installFetchObserver"
+      ]
+    }
+  ]
+}

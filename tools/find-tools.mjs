@@ -74,8 +74,8 @@ export function matchMcpServers(query, servers = []) {
     .map((s) => s.id);
 }
 
-function catalogue(mcpServers = [], skillsEnabled = true) {
-  const builtIn = CATEGORIES.filter(c => skillsEnabled || c.id !== 'skills')
+function catalogue(mcpServers = [], skillsEnabled = true, categories = CATEGORIES) {
+  const builtIn = categories.filter(c => skillsEnabled || c.id !== 'skills')
     .map((c) => `  ${c.id.padEnd(12)} ${c.summary}`);
   const external = mcpServers.map(
     (s) => `  ${String(s.id).padEnd(12)} MCP server - ${s.tools.length} tool(s): ${s.tools.slice(0, 6).join(", ")}`
@@ -97,18 +97,21 @@ export function run(args = {}, ctx = {}) {
   const set = activated(ctx.state);
   const query = String(args.query ?? "").trim();
   const skillsEnabled = ctx.skillsEnabled !== false;
+  const allowed = tool => !ctx.toolAvailability || ctx.toolAvailability.has(tool); // Optional host-supplied callable interface set; ordinary API discovery retains its existing behavior.
+  const categories = CATEGORIES.filter(category => (skillsEnabled || category.id !== 'skills') && category.tools.some(tool => allowed(tool.name)));
   // Only held-back servers need loading; a small one is already in the request.
   const connected = ctx.mcp?.summaries() || [];
-  const available = ctx.browserManager ? managedMcpSummaries(connected) : connected;
-  const held = available.filter((s) => s.deferred);
+  const available = (ctx.browserManager ? managedMcpSummaries(connected) : connected)
+    .map(server => ({ ...server, tools: server.tools.filter(tool => allowed(`mcp__${server.id}__${tool}`)) })).filter(server => server.tools.length);
+  const held = ctx.toolAvailability ? available : available.filter((s) => s.deferred);
 
   if (!query) {
-    return `${restored ? restored + '\n' : ''}Tell me what you want to do and I will load the right tools.\nGroups you can load:\n${catalogue(held, skillsEnabled)}`;
+    return `${restored ? restored + '\n' : ''}Tell me what you want to do and I will load the right tools.\nGroups you can load:\n${catalogue(held, skillsEnabled, categories)}`;
   }
 
-  const matched = matchCategories(query).filter(id => skillsEnabled || id !== 'skills');
+  const matched = matchCategories(query).filter(id => categories.some(category => category.id === id));
   const servers = matchMcpServers(query, held);
-  const requestedTools = [...matched.flatMap(id => findCategory(id).tools.map(tool => tool.name)),
+  const requestedTools = [...matched.flatMap(id => findCategory(id).tools.filter(tool => allowed(tool.name)).map(tool => tool.name)),
     ...available.filter(server => servers.includes(server.id)).flatMap(server => server.tools.map(tool => `mcp__${server.id}__${tool}`))];
   const browserTools = new Set(findCategory('browser').tools.map(tool => tool.name));
   if (args.scope === 'focus' && ctx.config?.browserToolFocus === true && (!requestedTools.length || requestedTools.some(name => !browserTools.has(name)))) {
@@ -118,11 +121,12 @@ export function run(args = {}, ctx = {}) {
     return 'Error: This group is outside the current tool focus. Call find_tools(scope="general", query=the needed group) first. No tools were loaded and focus was not changed.';
   }
   if (!matched.length && !servers.length) {
+    if (ctx.toolAvailability) return `${restored ? restored + '\n' : ''}Nothing matched "${query}" on this native app. Callable groups here:\n${catalogue(held, skillsEnabled, categories)}\nOther tool groups require their separately connected ChatGPT MCP app. Discovery here cannot add their interfaces to this app.`;
     // Never guess which family was meant - show them all and ask again. But a
     // miss usually means the capability is not here at all, so point at the one
     // place it might be bought in from, rather than dead-ending.
     return (
-      `${restored ? restored + '\n' : ''}Nothing matched "${query}". Everything you can load right now:\n${catalogue(held, skillsEnabled)}\n\n` +
+      `${restored ? restored + '\n' : ''}Nothing matched "${query}". Everything you can load right now:\n${catalogue(held, skillsEnabled, categories)}\n\n` +
       "Tip: booking, shopping, and media playback can usually be done directly in " +
       "a website - load the `browser` group with find_tools and drive the site. " +
       "If instead you need a whole capability that is not in that list - " +
@@ -136,7 +140,7 @@ export function run(args = {}, ctx = {}) {
   const loaded = [];
   const already = [];
   for (const id of matched) {
-    for (const tool of findCategory(id).tools) {
+    for (const tool of findCategory(id).tools.filter(tool => allowed(tool.name))) {
       if (findCategory(id).alwaysOn) { already.push(tool.name); continue; }
       if (set && !set.has(tool.name)) {
         set.add(tool.name);

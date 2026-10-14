@@ -294,7 +294,7 @@ export default function App() {
       teammate={selected} messages={state.selectedId ? state.threads[state.selectedId] || [] : []}
       jobs={threadJobs} onEditJob={editJob} onWatchJob={job => void watchJob(job)}
       running={Boolean(state.selectedId && state.running[state.selectedId])}
-      models={state.models} projects={projects} defaultModel={state.settings?.model || ''}
+      models={state.models} projects={projects} defaultModel={state.settings?.model || ''} provider={state.settings?.provider}
       usage={state.selectedId ? state.usage[state.selectedId] : undefined}
       loadedSkills={state.selectedId ? state.loadedSkills[state.selectedId] : undefined}
       chrome={state.chrome} sidebarOpen={sidebarOpen} reviewOpen={reviewOpen} browserRun={!browserScope && browserThreadId === state.selectedId ? browserView : null} onOpenBrowser={() => { setBrowserOpen(true); setReviewOpen(false); }} onOpenBrowserPlugins={() => { setView('plugins'); requestAnimationFrame(() => document.querySelector('.browser-plugins-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }} onToggleSidebar={() => setSidebarOpen(open => !open)} onToggleReview={() => { setReviewOpen(open => !open); setBrowserOpen(false); }} onProject={id => void assignProject(id)} onOpenProjects={() => setView('projects')}

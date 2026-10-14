@@ -1,4 +1,5 @@
 import type { COMPUTER_USE_CHANGED } from './computer-use.mjs';
+import type { CHATGPT_CONNECTION_CHANGED, ChatGptConnectionState } from './chatgpt-browser.mjs';
 
 export type Teammate = {
   id: string; name: string; color: string; emoji: string; persona: string;
@@ -93,6 +94,7 @@ export type EngineEvent = (
   | { type: 'projects-changed' }
   | { type: 'channels-updated'; channels: ChannelsView }
   | { type: 'browser-plugins-changed' | typeof COMPUTER_USE_CHANGED }
+  | { type: typeof CHATGPT_CONNECTION_CHANGED; state: ChatGptConnectionState }
   | { type: 'browser-install-progress'; text: string }
   | { type: 'browser-state'; threadId: string | null; state: BrowserSessionView }
   | { type: 'approval-resolved'; requestId: string }

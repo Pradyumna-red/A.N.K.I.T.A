@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { assertTaskBrowserPage, isProtectedBrowserPage, PROTECTED_BROWSER_PAGE } from './protected-pages.mjs';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -46,7 +47,8 @@ function historyTarget(direction) {
 
 /** Uses the existing MCP transport; never opens a CDP socket from Ankita. */
 export class ChromeBrowserAdapter {
-  constructor(mcp, { ensureConnected, ownedTabs = false } = {}) {
+  constructor(mcp, { ensureConnected, ownedTabs = false, protectedPage = null } = {}) {
+    this.protectedPage = protectedPage;
     this.ownedTabs = ownedTabs ? new Set() : null;
     this.mcp = mcp;
     this.ensureConnected = ensureConnected;
@@ -87,6 +89,11 @@ export class ChromeBrowserAdapter {
 
   async #call(name, args = {}, ctx = {}) {
     this.#ready();
+    if (args.pageId !== undefined && (this.protectedPage ?? ctx.protectedBrowserPage)) {
+      const available = await this.tabs(ctx);
+      if (!available.some(tab => Number(tab.id) === Number(args.pageId))) throw new Error(PROTECTED_BROWSER_PAGE);
+    }
+    if (args.url) assertTaskBrowserPage(args.url, this.protectedPage ?? ctx.protectedBrowserPage);
     const options = { signal: ctx.signal, timeoutMs: ctx.timeoutMs || 15_000 };
     if (CHROME_DISPATCH_OPERATIONS.has(name)) {
       this.textResult = null;
@@ -119,14 +126,15 @@ export class ChromeBrowserAdapter {
         active: Number(match[1]) === this.pageId || (!this.pageId && /\[selected\]/.test(titled ? match[4] : match[3])),
       });
     }
-    this.allTabs = tabs;
-    const selected = tabs.find(tab => text.split('\n').some(line => new RegExp(`^\\s*${tab.id}\\s*:`).test(line) && line.includes('[selected]')));
+    const allowed = tabs.filter(tab => !isProtectedBrowserPage(tab.url, this.protectedPage ?? ctx.protectedBrowserPage));
+    this.allTabs = allowed;
+    const selected = allowed.find(tab => text.split('\n').some(line => new RegExp(`^\\s*${tab.id}\\s*:`).test(line) && line.includes('[selected]')));
     if (selected) {
       const dialog = chromeDialog(text, selected.id);
       if (dialog) this.#rememberDialog(selected.id, dialog);
       // list_pages is global: absence of page-specific attention cannot prove a dialog closed.
     }
-    this.cachedTabs = this.ownedTabs ? tabs.filter(tab => this.ownedTabs.has(Number(tab.id))) : tabs;
+    this.cachedTabs = this.ownedTabs ? allowed.filter(tab => this.ownedTabs.has(Number(tab.id))) : allowed;
     return this.cachedTabs;
   }
 
@@ -280,6 +288,7 @@ export class ChromeBrowserAdapter {
 
   async #runOnce(args, ctx) {
     ctx ||= {};
+    ctx = { ...ctx, protectedBrowserPage: this.protectedPage ?? ctx.protectedBrowserPage };
     if (args.action === 'sequence') throw new Error(SEQUENCE_UNSUPPORTED);
     // Fail fast with the actionable message when there is no connection and no
     // way to establish one on demand: tab resolution below would otherwise mask

@@ -100,6 +100,11 @@ export class DesktopComputerUse {
     this.pointerSession = null;
     const client = record?.client;
     if (!supportsPointer(client)) return;
+    // Strict discovery tools (such as list_windows) cannot accept a session label.
+    // Initialize this transport's implicit lifecycle on explicit Connect/new owned
+    // work, while the early return above never revives an existing stopped pointer.
+    await this.cursorCall(COMPUTER_CURSOR_TOOLS.start, {}, { signal, client });
+    signal?.throwIfAborted();
     // The driver's implicit label can be shared by separate transports; reserve one unique desktop-owned session.
     const session = await this.cursorCall(COMPUTER_CURSOR_TOOLS.start, { session: randomUUID() }, { signal, client });
     if (typeof session.session !== 'string' || !session.session) throw new Error('Driver did not return its cursor session');

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { CHATGPT_BROWSER_PROVIDER } from '../shared/chatgpt-browser.mjs';
 
-const providers = new Set(['copilot', 'groq', 'kilo', 'custom']);
+const providers = new Set(['copilot', 'groq', 'kilo', 'custom', CHATGPT_BROWSER_PROVIDER]);
 const appearances = new Set(['graphite', 'mono', 'slate']);
 const keys = new Set(['provider', 'model', 'customApiBase', 'customApiKey', 'groqApiKey', 'kiloApiKey', 'composioApiKey', 'appearance', 'contextWindow', 'maxTokens', 'imageApiBase', 'imageApiKey', 'imageModel', 'unsplashAccessKey', 'pixabayApiKey', 'username', 'timeZone', 'profileSetupDone', 'disabledSkills', 'startAtLogin', 'trayNoticeSeen']);
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);

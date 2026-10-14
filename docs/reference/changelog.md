@@ -9,6 +9,37 @@ the tree but not yet packaged.
 
 No unreleased changes.
 
+## 2.6.0 — 2026-10-14
+
+### ChatGPT Browser and native desktop tools
+
+ANKITA uses an existing selected Chrome conversation and its current ChatGPT
+model, with attachments and correlated public replies. Core, Desktop and
+Plugins have separate native MCP tunnels; ANKITA retains its own tool host,
+workspace, pointer and cancellation. The app bundles the companion and pinned
+publisher helpers, with secure device storage and no CoS runtime dependency.
+
+Exact native call receipts support repeated tools within a reply, lost HTTP
+connections, owned Stop and observation-only Resume. Same-chat Observe is
+idempotent, selection changes serialize with Send, live recovery updates, Always
+allow retains the teammate's grant, and Clear resets local presentation.
+Image omission is explicit; global connection management stays in settings.
+
+### Computer control, skills and repeated work
+
+Native Windows Computer Use has styled connection controls, an animated pointer
+and owned popup-menu layering. Strict driver discovery and named pointer
+sessions initialize together while ended existing sessions stay stopped.
+
+The earlier merged ideas add offline skill fixtures, an executable handbook,
+interactive/offline scaffolding, complete skill contribution CI, measured
+startup timings, searchable cheat sheets, schedule templates and protected
+operator runbooks. Custom roots are discovered consistently across desktop/chat.
+
+See the [2.6.0 release notes](../../CHANGELOG.md#260---2026-10-14),
+[setup guide](../guides/chatgpt-browser.md) and
+[verification record](../chatgpt-browser-verification.md) for behavior and limits.
+
 ## 2.5.1 — 2026-10-09
 
 ### Browser reliability, evidence and desktop progress

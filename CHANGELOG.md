@@ -9,6 +9,69 @@ continuously updated narrative lives in [docs/reference/changelog.md](docs/refer
 
 No unreleased changes.
 
+## [2.6.0] - 2026-10-14
+
+### Added
+
+- **ChatGPT Browser provider.** Send messages and attachments from ANKITA to
+  your selected, already-open Chrome conversation and read its correlated
+  public replies back into ANKITA. The current model stays selected; ordinary
+  chat needs no API chat key or running Chat On Steroids application. Your
+  ChatGPT account's availability and limits still apply.
+- **Native ChatGPT tools.** Separate Core, Desktop and Plugins MCP connections
+  expose ANKITA's workspace tools, task browsers, connected computer controls
+  and enabled external plugins through dedicated OpenAI tunnels. Secure device
+  storage protects saved pairing and tunnel keys. Windows packages include the
+  companion, pinned publisher helpers and license notices.
+- **Windows Computer Use.** Connect the existing Cua driver from Plugins, see
+  the animated pointer during actions, toggle its visibility and stop owned
+  control. Desktop computer actions use the existing direct-action policy.
+  Styled controls show connection and driver state clearly.
+- **Skill authoring and checks.** Offline golden fixtures, an executable author
+  handbook, interactive/offline scaffolding and complete contribution CI help
+  authors build skills. Custom installation roots are discovered across chat
+  and desktop, including simultaneous root registrations.
+- **Useful work templates.** Searchable terminal/desktop cheat sheets, measured
+  skill/MCP startup timings, schedule templates and protected operator runbooks
+  make repeated tasks easier to start and understand.
+
+### Fixed
+
+- Native calls in one ChatGPT reply no longer conflict merely because the
+  provider reused a generation root or RPC number. Exact retries return their
+  durable result; accepted work retains its real outcome after HTTP disconnect.
+- Stop fences further actions, terminates owned commands/helpers and releases
+  the pointer while keeping Chrome and user apps open. Encrypted restart and
+  explicit Resume read the original reply without replaying its question.
+- Repeating Observe keeps the selected chat's original custody. Selection
+  changes and Send admission serialize; unresolved replies or unconfirmed Stop
+  cannot be stranded by changing chats. Recovery updates while the app is open.
+- Always allow applies to later native browser actions for that teammate.
+  Clear removes cached local messages/checklists while retaining action receipts.
+- Native discovery matches the tools callable on each connection. Core cannot
+  mutate global connection settings; active groups cannot reuse a tunnel ID.
+  Missing or over-quota images report unavailable visual state explicitly.
+- The owned pointer retains its layer across native popup menus. Strict driver
+  discovery and named pointer sessions initialize correctly without silently
+  reviving a stopped existing session.
+
+### Setup and limits
+
+- The final serial suite passed **1,344 tests, zero failures, one existing skip**.
+  The rebuilt 2.6.0 app passed its packaged lifecycle check and actual ChatGPT
+  file/edit/read/command/wait flow with **zero approval cards or errors**.
+  Hosted computer vision/action, owned Stop, upload and restart/Resume proofs
+  are recorded separately in the verification guide.
+
+- Follow the [ChatGPT Browser guide](docs/guides/chatgpt-browser.md). Connected
+  ANKITA tunnel cards and installed/enabled ChatGPT MCP apps are separate setup
+  steps. Each active group needs a dedicated tunnel.
+- One browser conversation/teammate/workspace is supported at a time. Unknown
+  page layouts and missing exact native ownership can remain unconfirmed.
+  Additional helper platforms and independent publisher scanning remain
+  unverified. See the [verification record](docs/chatgpt-browser-verification.md)
+  for exact hosted, fixture, packaging and suite evidence.
+
 ## [2.5.2] - 2026-10-09
 
 ### Fixed

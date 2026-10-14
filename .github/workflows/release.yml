@@ -94,6 +94,9 @@ jobs:
       # Build only. Publishing is a separate, deterministic step below: letting
       # electron-builder create the release races its own parallel target
       # uploads and can 422 mid-way, leaving a release without latest.yml.
+      - name: Prepare ChatGPT companion and pinned native resources
+        if: steps.check.outputs.exists == 'false'
+        run: npm run desktop:resources
       - name: Build (Azure Trusted Signing)
         if: steps.check.outputs.exists == 'false' && env.AZURE_CLIENT_ID != ''
         run: |

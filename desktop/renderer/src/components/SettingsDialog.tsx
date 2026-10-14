@@ -4,6 +4,8 @@ import { Icon } from './Icons';
 import { detectTimezone, timezoneSuggestions } from '../lib/timezones';
 import { TeammateAvatar } from './TeammateAvatar';
 import { nextRunLabel } from './ScheduledTaskCard';
+import { CHATGPT_BROWSER_PROVIDER, CHATGPT_BROWSER_LABEL, CHATGPT_CURRENT_MODEL_LABEL } from '../../../shared/chatgpt-browser.mjs';
+import { ChatGptConnection } from './ChatGptConnection';
 
 export type SettingsTab = 'model' | 'providers' | 'profile' | 'images' | 'channels' | 'background' | 'privacy' | 'appearance' | 'about';
 
@@ -23,6 +25,7 @@ const providers = [
   { id: 'groq', name: 'Groq', detail: 'Fast hosted inference' },
   { id: 'kilo', name: 'Kilo', detail: 'Free and hosted models' },
   { id: 'custom', name: 'Custom provider', detail: 'OpenAI-compatible endpoint' },
+  { id: CHATGPT_BROWSER_PROVIDER, name: CHATGPT_BROWSER_LABEL, detail: 'Your already-open ChatGPT chat' },
 ];
 const themes: { id: DesktopPreferences['appearance']; name: string; detail: string }[] = [
   { id: 'graphite', name: 'Graphite', detail: 'The island’s graphite palette' },
@@ -240,8 +243,8 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
           {tab === 'model' && <div className="settings-content">
             <div className="settings-heading"><span className="settings-heading-icon"><Icon name="cube" size={20} /></span><h1 id="settings-title">Model</h1><p>Choose the default model for new conversations.</p></div>
             <section className="settings-panel settings-model-choice"><div className="settings-section-lead"><span className="settings-section-symbol"><Icon name="cube" size={19} /></span><div><h2>Conversation model</h2><p>Your starting point for new teammates.</p></div><span className="settings-value-tag">{providers.find(item => item.id === preferences.provider)?.name || preferences.provider}</span></div><label className="settings-label" htmlFor="settings-model">Default model</label>
-              <select id="settings-model" className="settings-select" value={draft.model} onChange={event => set('model', event.target.value)}>
-                <option value="">{models.length ? 'Choose a model' : 'Connect a provider to see available models'}</option>
+              <select id="settings-model" className="settings-select" value={draft.model} disabled={preferences.provider === CHATGPT_BROWSER_PROVIDER} onChange={event => set('model', event.target.value)}>
+                <option value="">{preferences.provider === CHATGPT_BROWSER_PROVIDER ? CHATGPT_CURRENT_MODEL_LABEL : models.length ? 'Choose a model' : 'Connect a provider to see available models'}</option>
                 {models.map(model => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}
               </select>{model && <div className="settings-model-meta">{model.vendor && <span>{model.vendor}</span>}{model.context && <span>{model.context.toLocaleString()} token context</span>}{typeof model.tools === 'boolean' && <span>{model.tools ? 'Tool calling' : 'Text only'}</span>}</div>}<p className="settings-help">Change the active chat’s model in the composer. Teammates with their own model keep it.</p>
             </section>
@@ -264,7 +267,7 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
             <div className="settings-heading"><span className="settings-heading-icon"><Icon name="key" size={20} /></span><h1 id="settings-title">Providers</h1><p>Connect a model provider and manage keys for connected apps.</p></div>
             <h2 className="settings-section-title">Model provider</h2>
             <div className="settings-provider-grid">{providers.map(item => <button type="button" key={item.id} className={`settings-provider-card ${draft.provider === item.id ? 'active' : ''}`} aria-pressed={draft.provider === item.id} onClick={() => { set('provider', item.id); setTestResult(null); }}><span className="settings-provider-radio" /><strong>{item.name}</strong><small>{item.detail}</small></button>)}</div>
-            <div className="settings-panel settings-provider-detail">
+            {draft.provider !== CHATGPT_BROWSER_PROVIDER && <div className="settings-panel settings-provider-detail">
               {draft.provider === 'copilot' && <><h2>GitHub Copilot</h2><p>Sign in through GitHub when you connect. Your account provides the available models.</p></>}
               {draft.provider === 'groq' && <><h2>Groq credentials</h2><p>Add your Groq API key to load available models.</p>{secretField('groqApiKey', 'API key', 'gsk_…')}</>}
               {draft.provider === 'kilo' && <><h2>Kilo credentials</h2><p>A key is optional for free models. Add one to access your account’s models.</p>{secretField('kiloApiKey', 'API key', 'Enter your Kilo key')}</>}
@@ -273,7 +276,8 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
                 {secretField('customApiKey', 'API key', 'Optional for local providers')}
                 <div className="settings-provider-actions"><button type="button" className="settings-secondary" onClick={test} disabled={testing || !draft.customApiBase.trim()}>{testing ? 'Testing…' : 'Test connection'}</button><span role="status" className={testResult?.tone === 'error' ? 'settings-test-error' : 'settings-test-ok'}>{testResult?.text || 'Checks the endpoint and available models.'}</span></div>
               </>}
-            </div>
+            </div>}
+            {draft.provider === CHATGPT_BROWSER_PROVIDER && <ChatGptConnection teammates={teammates} enabled={preferences.provider === CHATGPT_BROWSER_PROVIDER} />}
             <h2 className="settings-section-title">Connected apps</h2>
             <div className="settings-panel"><h2>Composio</h2><p>Connect Gmail, Slack, Notion and other app tools with your Composio project key.</p>{secretField('composioApiKey', 'Project key', 'Enter your Composio key')}</div>
             <div className="settings-provider-actions"><button type="button" className="settings-primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save provider settings'}</button><span>Keys are saved on this device and never shown again.</span></div>

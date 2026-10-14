@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "ANKITA ChatGPT Companion",
+  "version": "0.1.0",
+  "description": "Connect one chosen ChatGPT conversation to ANKITA. Your account models and limits apply.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.mjs",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
