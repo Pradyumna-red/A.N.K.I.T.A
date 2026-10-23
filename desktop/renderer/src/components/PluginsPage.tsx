@@ -28,15 +28,17 @@ function PluginLogo({ slug, label, logo }: { slug: string; label: string; logo?:
   return <span className="plugin-logo letter" style={{ '--plugin-hue': hue } as React.CSSProperties}>{label.slice(0, 1).toUpperCase()}</span>;
 }
 
-export function PluginsPage({ chrome, sidebarOpen, onToggleSidebar, onOpenSettings, hasComposioKey, toolsRevision }: {
+export function PluginsPage({ chrome, sidebarOpen, onToggleSidebar, onOpenSettings, hasComposioKey, toolsRevision, initialSection = 'apps' }: {
   chrome: string; sidebarOpen: boolean; onToggleSidebar: () => void; onOpenSettings: () => void; hasComposioKey: boolean; toolsRevision: number;
+  initialSection?: 'apps' | 'skills';
 }) {
   const [overview, setOverview] = useState<PluginsOverview | null>(null);
   const [cards, setCards] = useState<PluginCard[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [tab, setTab] = useState<'discover' | 'installed'>('discover');
-  const [section, setSection] = useState<'apps' | 'skills'>('apps');
+  const [section, setSection] = useState<'apps' | 'skills'>(initialSection);
+  useEffect(() => { setSection(initialSection); }, [initialSection]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [catalogBusy, setCatalogBusy] = useState(false);

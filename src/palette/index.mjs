@@ -6,13 +6,19 @@ const MANIFEST_LIMIT = 20; // Entries per skill; bounds untrusted contribution s
 const TITLE_LIMIT = 100; // Characters displayed in a single palette row.
 const HINT_LIMIT = 300;
 const KEYWORDS_LIMIT = 20;
+// Stable desktop routing IDs; palette and composer consumers share this contract.
+export const DESKTOP_ACTIONS = Object.freeze({
+  newTeammate: 'new-teammate', settings: 'settings', jobs: 'jobs', export: 'export',
+  updates: 'updates', plugins: 'plugins', review: 'review', projects: 'projects',
+  browser: 'browser', skills: 'skills', clear: 'clear', commands: 'commands',
+});
 export const COMMANDS = Object.freeze([
-  { id: 'command:new-chat', title: 'New teammate', hint: 'Create another assistant', keywords: ['new chat', 'agent'], command: 'new-teammate' },
-  { id: 'command:settings', title: 'Settings', hint: 'Providers, appearance and preferences', keywords: ['config', 'model'], command: 'settings' },
-  { id: 'command:jobs', title: 'Scheduled tasks', hint: 'Upcoming runs and heartbeat', keywords: ['cron', 'reminder', 'schedule'], command: 'jobs' },
-  { id: 'command:export', title: 'Export conversation', hint: 'Save a protected Markdown transcript', keywords: ['download', 'history'], command: 'export' },
-  { id: 'command:updates', title: 'Check for updates', hint: 'Look for a newer Ankita release', keywords: ['upgrade', 'version'], command: 'updates' },
-  { id: 'command:plugins', title: 'Plugins and skills', hint: 'Manage connected apps and skills', keywords: ['connectors', 'integration'], command: 'plugins' },
+  { id: 'command:new-chat', title: 'New teammate', hint: 'Create another assistant', keywords: ['new chat', 'agent'], command: DESKTOP_ACTIONS.newTeammate },
+  { id: 'command:settings', title: 'Settings', hint: 'Providers, appearance and preferences', keywords: ['config', 'model'], command: DESKTOP_ACTIONS.settings },
+  { id: 'command:jobs', title: 'Scheduled tasks', hint: 'Upcoming runs and heartbeat', keywords: ['cron', 'reminder', 'schedule'], command: DESKTOP_ACTIONS.jobs },
+  { id: 'command:export', title: 'Export conversation', hint: 'Save a protected Markdown transcript', keywords: ['download', 'history'], command: DESKTOP_ACTIONS.export },
+  { id: 'command:updates', title: 'Check for updates', hint: 'Look for a newer Ankita release', keywords: ['upgrade', 'version'], command: DESKTOP_ACTIONS.updates },
+  { id: 'command:plugins', title: 'Plugins and skills', hint: 'Manage connected apps and skills', keywords: ['connectors', 'integration'], command: DESKTOP_ACTIONS.plugins },
 ]);
 export function validatePalette(entries) {
   if (entries === undefined) return [];

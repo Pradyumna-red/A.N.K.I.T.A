@@ -1,0 +1,17 @@
+import type { Model, Project } from './wire';
+import type { PaletteEntry } from '../../src/palette/index.mjs';
+export type SlashEntry = { id: string; kind: string; title: string; description: string; icon: string; group: string; hint: string; slash?: string; command?: string; value?: string | null; aliases?: string[]; keywords?: string[]; active?: boolean; confirm?: boolean };
+export type SlashQuery = { stage: 'commands' | 'model' | 'project' | 'skill'; query: string };
+export const SLASH_TRIGGER: string;
+export const SLASH_STAGES: Readonly<{ commands: 'commands'; model: 'model'; project: 'project'; skill: 'skill' }>;
+export const SLASH_PALETTE_QUERY: string;
+export const SLASH_GROUPS: Readonly<Record<string, string>>;
+export const SLASH_STAGE_LABELS: Readonly<Record<SlashQuery['stage'], string>>;
+export function commandEntries(): SlashEntry[];
+export function slashQuery(text: string): SlashQuery | null;
+export function searchSlashEntries(entries: SlashEntry[], query?: string): SlashEntry[];
+export function modelEntries(models: Model[], activeModel: string): SlashEntry[];
+export function projectEntries(projects: Project[], activeProject?: string | null): SlashEntry[];
+export function skillEntries(entries: PaletteEntry[]): SlashEntry[];
+export function skillDraft(entry: SlashEntry): string;
+export function moveSlashSelection(current: number, direction: number, count: number): number;

@@ -23,6 +23,7 @@ import { JobsPanel } from './components/JobsPanel';
 import { PaletteModal } from './components/PaletteModal';
 import { CAPTURE_UI_EVENTS } from '../../browser-helper/protocol.mjs';
 import { COMPOSE_EVENT, sidebarWidth as normalizeSidebarWidth } from '../../shared/desktop-layout.mjs';
+import { DESKTOP_ACTIONS } from '../../../src/palette/index.mjs';
 
 type Bootstrap = { teammates: Teammate[]; models: Model[]; settings: { username: string; provider: string; model: string; tools: string[] }; preferences?: DesktopPreferences; version?: string; contract?: number; chrome: string; jobs: Routine[] };
 type UiState = { selectedId?: string | null; sidebarWidth?: number; sidebarOpen?: boolean };
@@ -45,6 +46,7 @@ export default function App() {
   const [confirm, setConfirm] = useState<{ action: 'clear' | 'delete'; id: string; name: string } | null>(null);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const [view, setView] = useState<'chat' | 'plugins' | 'projects'>('chat');
+  const [pluginsSection, setPluginsSection] = useState<'apps' | 'skills'>('apps');
   const [projects, setProjects] = useState<Project[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
@@ -242,6 +244,23 @@ export default function App() {
   };
   const clear = () => { if (selected) setConfirm({ action: 'clear', id: selected.id, name: selected.name }); };
   const remove = () => { if (selected) setConfirm({ action: 'delete', id: selected.id, name: selected.name }); };
+  // The palette and slash menu use the same desktop actions and confirmation flow.
+  const runCommand = (command: string) => {
+    if (command === DESKTOP_ACTIONS.newTeammate) setDialog('create');
+    if (command === DESKTOP_ACTIONS.settings) setSettingsTab('model');
+    if (command === DESKTOP_ACTIONS.jobs) { setView('chat'); editJob(); }
+    if (command === DESKTOP_ACTIONS.plugins || command === DESKTOP_ACTIONS.browser || command === DESKTOP_ACTIONS.skills) {
+      setPluginsSection(command === DESKTOP_ACTIONS.skills ? 'skills' : 'apps');
+      setView('plugins');
+      const selector = command === DESKTOP_ACTIONS.browser ? '.browser-plugins-section' : null;
+      if (selector) requestAnimationFrame(() => document.querySelector(selector)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    }
+    if (command === DESKTOP_ACTIONS.projects) setView('projects');
+    if (command === DESKTOP_ACTIONS.review) { setReviewOpen(true); setBrowserOpen(false); }
+    if (command === DESKTOP_ACTIONS.clear) clear();
+    if (command === DESKTOP_ACTIONS.updates) void window.ankita.updateAction('check');
+    if (command === DESKTOP_ACTIONS.export && state.selectedId) void window.ankita.invoke('exportChat', { id: state.selectedId }).catch(cause => dispatch({ type: 'event', event: { type: 'error', threadId: state.selectedId, message: cause.message } }));
+  };
   const confirmAction = () => {
     if (!confirm) return;
     const { action, id } = confirm;
@@ -284,20 +303,21 @@ export default function App() {
     <Sidebar
       teammates={state.teammates} selectedId={state.selectedId} search={search} onSearch={setSearch}
       onSelect={id => { setView('chat'); dispatch({ type: 'select', id }); }} onCreate={() => { setView('chat'); setDialog('create'); }} onOpenSettings={() => setSettingsTab('model')}
-      onOpenPlugins={() => setView('plugins')} pluginsOpen={view === 'plugins'} onOpenProjects={() => setView('projects')} projectsOpen={view === 'projects'}
+      onOpenPlugins={() => { setPluginsSection('apps'); setView('plugins'); }} pluginsOpen={view === 'plugins'} onOpenProjects={() => setView('projects')} projectsOpen={view === 'projects'}
       onOpenChat={() => setView('chat')}
       provider={state.settings?.provider || 'Copilot'} model={state.settings?.model || ''} phase={state.phase}
       chrome={state.chrome} unread={state.unread} toolsCount={state.settings?.tools.length || 0}
       width={sidebarWidth} collapsed={!sidebarOpen} onCollapse={() => setSidebarOpen(false)} onResize={setSidebarWidth}
     />
-    {view === 'plugins' ? <PluginsPage chrome={state.chrome} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen(open => !open)} onOpenSettings={() => setSettingsTab('providers')} hasComposioKey={preferences.hasComposioKey} toolsRevision={toolsRevision} /> : view === 'projects' ? <ProjectsPage projects={projects} selectedThread={selected} chrome={state.chrome} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen(open => !open)} onRefresh={refreshProjects} onAssign={assignProject} /> : <ChatPane
+    {view === 'plugins' ? <PluginsPage chrome={state.chrome} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen(open => !open)} onOpenSettings={() => setSettingsTab('providers')} hasComposioKey={preferences.hasComposioKey} toolsRevision={toolsRevision} initialSection={pluginsSection} /> : view === 'projects' ? <ProjectsPage projects={projects} selectedThread={selected} chrome={state.chrome} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen(open => !open)} onRefresh={refreshProjects} onAssign={assignProject} /> : <ChatPane
       teammate={selected} messages={state.selectedId ? state.threads[state.selectedId] || [] : []}
       jobs={threadJobs} onEditJob={editJob} onWatchJob={job => void watchJob(job)}
       running={Boolean(state.selectedId && state.running[state.selectedId])}
       models={state.models} projects={projects} defaultModel={state.settings?.model || ''} provider={state.settings?.provider}
       usage={state.selectedId ? state.usage[state.selectedId] : undefined}
       loadedSkills={state.selectedId ? state.loadedSkills[state.selectedId] : undefined}
-      chrome={state.chrome} sidebarOpen={sidebarOpen} reviewOpen={reviewOpen} browserRun={!browserScope && browserThreadId === state.selectedId ? browserView : null} onOpenBrowser={() => { setBrowserOpen(true); setReviewOpen(false); }} onOpenBrowserPlugins={() => { setView('plugins'); requestAnimationFrame(() => document.querySelector('.browser-plugins-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }} onToggleSidebar={() => setSidebarOpen(open => !open)} onToggleReview={() => { setReviewOpen(open => !open); setBrowserOpen(false); }} onProject={id => void assignProject(id)} onOpenProjects={() => setView('projects')}
+      onCommand={runCommand} commandsRevision={toolsRevision}
+      chrome={state.chrome} sidebarOpen={sidebarOpen} reviewOpen={reviewOpen} browserRun={!browserScope && browserThreadId === state.selectedId ? browserView : null} onOpenBrowser={() => { setBrowserOpen(true); setReviewOpen(false); }} onOpenBrowserPlugins={() => runCommand(DESKTOP_ACTIONS.browser)} onToggleSidebar={() => setSidebarOpen(open => !open)} onToggleReview={() => { setReviewOpen(open => !open); setBrowserOpen(false); }} onProject={id => void assignProject(id)} onOpenProjects={() => setView('projects')}
       onSend={send} onStop={stop} onModel={model} onEdit={() => setDialog('edit')} onCreate={() => setDialog('create')} onClear={clear} onDelete={remove}
     />}
     {view === 'chat' && state.selectedId && <BrowserStage key={browserScope || state.selectedId} scope={browserScope} view={browserThreadId === state.selectedId ? browserView : null} visible={showBrowser} onView={setBrowserView} onStop={stopBrowser} onOpenSetup={() => setView('plugins')} />}
@@ -311,14 +331,7 @@ export default function App() {
     {showOnboarding && <OnboardingDialog initialName={preferences.username} initialTimeZone={preferences.timeZone} onSave={saveOnboarding} onSkip={skipOnboarding} />}
     {update && <UpdateBanner update={update} onInstall={installUpdate} onOpenRelease={() => void window.ankita.openExternal('https://github.com/akyourowngames/A.N.K.I.T.A/releases/latest')} onDismiss={dismissUpdate} />}
     {state.compat && !state.compat.ok && !state.compatDismissed && <VersionMismatchNotice compat={state.compat} hasUpdate={update?.type === 'downloaded'} onRestart={recoverFromMismatch} onDismiss={() => dispatch({ type: 'compat-dismissed' })} />}
-    {paletteOpen && <PaletteModal threadId={state.selectedId} revision={`${toolsRevision}:${state.jobs.map(job => `${job.id}:${job.enabled}:${job.nextRunAt}`).join('|')}`} onClose={() => setPaletteOpen(false)} onCommand={command => {
-      if (command === 'new-teammate') setDialog('create');
-      if (command === 'settings') setSettingsTab('model');
-      if (command === 'jobs') { setView('chat'); editJob(); }
-      if (command === 'plugins') setView('plugins');
-      if (command === 'updates') void window.ankita.updateAction('check');
-      if (command === 'export' && state.selectedId) void window.ankita.invoke('exportChat', { id: state.selectedId }).catch(cause => dispatch({ type: 'event', event: { type: 'error', threadId: state.selectedId, message: cause.message } }));
-    }} />}
+    {paletteOpen && <PaletteModal threadId={state.selectedId} revision={`${toolsRevision}:${state.jobs.map(job => `${job.id}:${job.enabled}:${job.nextRunAt}`).join('|')}`} onClose={() => setPaletteOpen(false)} onCommand={runCommand} />}
     {secretNotice && !state.error && <div className="error-toast secret-toast" role="status"><Icon name="shield" size={18} /><span>{secretNotice}</span><button onClick={() => setSecretNotice('')} aria-label="Dismiss secret notice"><Icon name="close" size={16} /></button></div>}
     {state.error && <div className="error-toast" role="alert"><Icon name="alert" size={18} /><span>{state.error}</span><button onClick={() => dispatch({ type: 'dismiss-error' })} aria-label="Dismiss error"><Icon name="close" size={16} /></button></div>}
   </div></SecureStoreProvider>;

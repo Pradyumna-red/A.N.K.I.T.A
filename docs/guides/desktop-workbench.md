@@ -4,6 +4,19 @@ The main window now follows the island's graphite surfaces, system typography,
 mascot faces and compact controls. The desktop keeps its existing teammates,
 tools, permissions, projects, plugins, scheduling and file readers.
 
+## Interactive slash commands — 2026-10-22
+
+Type `/` at the start of your message or click the `/` button beside Attach to
+browse commands. Search by name or description, use the arrow keys and Enter/Tab,
+or click a result. Escape closes the menu. Model, project and skill commands
+open choices inside the menu; installed skills load from your enabled catalog.
+Selecting a skill prepares an editable request. Conversation clearing still asks
+for confirmation, and drafts and attachments are retained while browsing.
+
+The menu follows all three appearances, fits short and narrow windows, and
+respects reduced motion. See [the implementation findings](../findings/desktop-slash-commands.md)
+for reproduction, native/browser evidence and remaining verification limits.
+
 ## Layout and interaction
 
 - The left rail switches between conversations, projects and plugins. Settings

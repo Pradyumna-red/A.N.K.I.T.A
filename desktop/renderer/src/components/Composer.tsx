@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react';
-import type { ChatMessage, Model } from '../../../shared/wire';
+import { useCallback, useEffect, useId, useRef } from 'react';
+import type { ChatMessage, Model, Project } from '../../../shared/wire';
 import { Icon } from './Icons';
 import { ModelPicker } from './ModelPicker';
 import { TodoProgress } from './TodoProgress';
@@ -7,6 +7,7 @@ import { useCompanionDrafts } from '../lib/useCompanionDrafts';
 import { EMPTY_COMPANION_DRAFT } from '../../../shared/companion-drafts.mjs';
 import { FILE_DROP_EVENT, MAX_TEXT_BYTES, CAPTURE_UI_EVENTS } from '../../../browser-helper/protocol.mjs';
 import { COMPOSE_EVENT } from '../../../shared/desktop-layout.mjs';
+import { SlashMenu, useSlashCommands } from './SlashMenu';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_DOC_BYTES = 20 * 1024 * 1024;
@@ -199,8 +200,9 @@ export async function readFile(file: File): Promise<Attachment> {
   return { name: file.name, image: false, data: toBase64(new TextEncoder().encode(new TextDecoder().decode(bytes))) };
 }
 
-export function Composer({ threadId, name, messages, running, models, model, provider, onModel, onSend, onStop }: {
+export function Composer({ threadId, name, messages, running, models, model, provider, projects, projectId, commandsRevision, onProject, onCommand, onModel, onSend, onStop }: {
   threadId: string; name: string; messages: ChatMessage[]; running: boolean; models: Model[]; model: string; provider?: string;
+  projects: Project[]; projectId: string | null; commandsRevision: number; onProject: (id: string | null) => void; onCommand: (command: string) => void;
   onModel: (id: string) => void; onSend: (text: string, attachments?: { name: string; data: string; kind?: 'document'; images?: string[] }[]) => void; onStop: () => void;
 }) {
   const captured = useCallback((item: import('../../../shared/wire').CompanionCaptureItem) => {
@@ -211,6 +213,8 @@ export function Composer({ threadId, name, messages, running, models, model, pro
   const setText = (value: string) => store.update(threadId, draft => ({ ...draft, text: value }));
   const input = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const slashId = useId();
+  const slash = useSlashCommands({ text, setText, threadId, revision: commandsRevision, models, model, provider, projects, projectId, onModel, onProject, onCommand, focus: () => input.current?.focus() });
 
   useEffect(() => { if (input.current) { input.current.style.height = 'auto'; input.current.style.height = `${Math.min(input.current.scrollHeight, 170)}px`; } }, [text]);
   useEffect(() => {
@@ -252,17 +256,21 @@ export function Composer({ threadId, name, messages, running, models, model, pro
   const removeAttachment = (index: number) => store.update(threadId, draft => ({ ...draft, files: draft.files.filter((_, i) => i !== index) }));
   const submit = () => {
     if (running || reading || (!text.trim() && !attachments.length)) return;
+    if (slash.open) { slash.choose(); return; }
     onSend(text.trim(), attachments.map(({ name: fileName, data, kind, images }) => ({ name: fileName, data, kind, ...(images?.length ? { images } : {}) })));
     store.update(threadId, () => EMPTY_COMPANION_DRAFT); input.current?.focus();
   };
 
-  return <div className="composer-area"><TodoProgress key={threadId} messages={messages} /><div className="composer-shell"
+  return <div className="composer-area"><TodoProgress key={threadId} messages={messages} /><div className="composer-shell" ref={slash.shell}
     onDragOver={event => { event.preventDefault(); }}
     onDrop={event => { event.preventDefault(); void addFiles(event.dataTransfer?.files || null); }}>
+    {slash.open && !running && <SlashMenu menu={slash} id={slashId} />}
     <textarea ref={input} rows={1} value={text} onChange={event => setText(event.target.value)} onKeyDown={event => {
+      if (slash.keyDown(event)) return;
       if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); }
     }} onPaste={event => { if (event.clipboardData?.files?.length) { event.preventDefault(); void addFiles(event.clipboardData.files); } }}
-      placeholder={`Ask ${name} anything…`} aria-label={`Message ${name}`} disabled={running} />
+      placeholder={`Ask ${name} anything… or / for commands`} aria-label={`Message ${name}`} disabled={running}
+      role={slash.open ? 'combobox' : undefined} aria-autocomplete={slash.open ? 'list' : undefined} aria-haspopup={slash.open ? 'listbox' : undefined} aria-expanded={slash.open || undefined} aria-controls={slash.open ? slashId : undefined} aria-activedescendant={slash.open && slash.active ? `${slashId}-${slash.index}` : undefined} />
     {(attachments.length > 0 || notice || reading) && <div className="composer-attachments">
       {attachments.map((file, index) => <span className="attachment-chip" key={`${file.name}-${index}`}>
         {file.preview ? <img src={file.preview} alt="" /> : <Icon name="file" size={14} />}
@@ -277,12 +285,13 @@ export function Composer({ threadId, name, messages, running, models, model, pro
         <input ref={fileInput} type="file" multiple hidden accept={ACCEPT}
           onChange={event => { void addFiles(event.target.files); event.target.value = ''; }} />
         <button type="button" className="composer-icon" onClick={() => fileInput.current?.click()} disabled={running} title="Attach images, documents or code (Ctrl+U)" aria-label="Attach files"><Icon name="plus" size={18} /></button>
+        <button type="button" className={`composer-command-button ${slash.open ? 'active' : ''}`} onClick={() => slash.open ? slash.dismiss() : slash.browse()} disabled={running || reading} title="Browse commands (/)" aria-label="Browse commands" aria-expanded={slash.open} aria-controls={slash.open ? slashId : undefined}>/</button>
         <span className="composer-key-hint">Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line <span aria-hidden="true">·</span> Ctrl + U to attach</span>
       </div>
       <div className="composer-controls">
         <ModelPicker models={models} value={model} onChange={onModel} openUp provider={provider} />
         {running ? <button type="button" className="composer-action stop" onClick={onStop} title="Stop response" aria-label="Stop response"><Icon name="stop" size={17} /></button>
-          : <button type="button" className="composer-action send" onClick={submit} disabled={(!text.trim() && !attachments.length) || reading} title="Send message" aria-label="Send message"><Icon name="send" size={19} stroke={2.1} /></button>}
+          : <button type="button" className="composer-action send" onClick={submit} disabled={reading || (slash.open ? !slash.active : !text.trim() && !attachments.length)} title={slash.open ? 'Choose command' : 'Send message'} aria-label={slash.open ? 'Choose command' : 'Send message'}><Icon name="send" size={19} stroke={2.1} /></button>}
       </div>
     </div>
   </div></div>;

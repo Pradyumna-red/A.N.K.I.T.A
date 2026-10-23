@@ -19,11 +19,12 @@ const STARTERS = [
   { icon: 'chat', label: 'Explore an idea', text: 'Help me explore an idea: ' },
 ]; // User-editable draft starters; none starts a model request.
 
-export function ChatPane({ teammate, messages, running, models, projects, defaultModel, provider, usage, loadedSkills, chrome, sidebarOpen, reviewOpen, browserRun, onToggleSidebar, onToggleReview, onOpenBrowser, onOpenBrowserPlugins, onProject, onOpenProjects, onSend, onStop, onModel, onEdit, onCreate, onClear, onDelete, jobs, onEditJob, onWatchJob }: {
+export function ChatPane({ teammate, messages, running, models, projects, defaultModel, provider, usage, loadedSkills, chrome, sidebarOpen, reviewOpen, browserRun, onToggleSidebar, onToggleReview, onOpenBrowser, onOpenBrowserPlugins, onProject, onOpenProjects, onSend, onStop, onModel, onEdit, onCreate, onClear, onDelete, jobs, onEditJob, onWatchJob, onCommand, commandsRevision }: {
   jobs: Routine[]; onEditJob: (id?: string) => void; onWatchJob: (job: Routine) => void;
   teammate: Teammate | null; messages: ChatMessage[]; running: boolean; models: Model[]; defaultModel: string; provider?: string;
   projects: Project[]; usage?: Usage; chrome: string; sidebarOpen: boolean; reviewOpen: boolean; onToggleSidebar: () => void; onToggleReview: () => void; onProject: (id: string | null) => void; onOpenProjects: () => void;
   loadedSkills?: string[];
+  commandsRevision: number; onCommand: (command: string) => void;
   browserRun?: BrowserSessionView | null; onOpenBrowser: () => void; onOpenBrowserPlugins?: () => void;
   onSend: (text: string, attachments?: { name: string; data: string; kind?: 'document'; images?: string[] }[]) => void; onStop: () => void; onModel: (id: string) => void;
   onEdit: () => void; onCreate: () => void; onClear: () => void; onDelete: () => void;
@@ -103,6 +104,6 @@ export function ChatPane({ teammate, messages, running, models, projects, defaul
       <div />
     </div></div>
     {!atBottom && <button className="jump-to-bottom" onClick={jump} aria-label="Jump to latest"><Icon name="chevron" size={17} /><span>Latest</span></button>}
-    <div className="jobs-composer"><JobsPill jobs={jobs} onEdit={onEditJob} onWatch={onWatchJob} /><Composer threadId={teammate.id} name={teammate.name} messages={messages} running={running} models={models} model={teammate.model || defaultModel} provider={provider} onModel={onModel} onSend={onSend} onStop={onStop} /></div>
+    <div className="jobs-composer"><JobsPill jobs={jobs} onEdit={onEditJob} onWatch={onWatchJob} /><Composer threadId={teammate.id} name={teammate.name} messages={messages} running={running} models={models} model={teammate.model || defaultModel} provider={provider} projects={projects} projectId={teammate.projectId} commandsRevision={commandsRevision} onProject={onProject} onCommand={onCommand} onModel={onModel} onSend={onSend} onStop={onStop} /></div>
   </main>;
 }
