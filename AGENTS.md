@@ -63,3 +63,11 @@
 4. **Ask on forks.** When two valid designs exist (receipt shape, guard placement),
    state the trade-off and ask rather than silently picking.
 5. **Concise reports.** Changed files, test counts, traces, confidence. No filler.
+
+## 5. Plain Explanation — On Request
+
+1. **Simple words when asked.** When the user asks for simple plain English with
+   no coding language, use short everyday words. No code, no file names, no tool
+   names, no test counts, no jargon.
+2. **Say what and why.** List what was added and why it keeps the user safe, one
+   short line per item.
