@@ -123,9 +123,13 @@ jobs:
             exit 1
           fi
           shopt -s nullglob
+          # Checksums for the one-liner installers and winget manifests: one
+          # file, generated next to the artifacts so names can never drift.
+          (cd desktop/release && sha256sum Ankita-"$version"-*.exe > SHA256SUMS.txt)
           assets=(
             desktop/release/Ankita-"$version"-*.exe
             desktop/release/Ankita-"$version"-*.blockmap
+            desktop/release/SHA256SUMS.txt
             "$manifest"
           )
           if [ ${#assets[@]} -eq 0 ]; then
