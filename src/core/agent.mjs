@@ -23,7 +23,7 @@ import { browserScreenshotImage, MAX_BROWSER_SCREENSHOTS_PER_TURN } from '../../
 import { managedMcpSummaries, isBrowserMcpTool } from '../integrations/browser-routing.mjs';
 import { parseToolName } from '../integrations/mcp-manager.mjs';
 import { attachMcpImages, MAX_MCP_IMAGES_PER_TURN, messagesForModel } from '../integrations/mcp-images.mjs';
-import { COMPUTER_MCP_ID, COMPUTER_GUIDANCE, COMPUTER_READ_TOOLS, COMPUTER_TOOLS, computerObservationTargets, formatComputerTargets } from '../integrations/computer-use.mjs';
+import { COMPUTER_MCP_ID, COMPUTER_DIRECT_CONFIG, COMPUTER_GUIDANCE, COMPUTER_READ_TOOLS, COMPUTER_TOOLS, computerObservationTargets, formatComputerTargets } from '../integrations/computer-use.mjs';
 import { BACKGROUND_JOB_PROMPT, BACKGROUND_BROWSER_PROMPT, DEFAULT_JOB_ALLOW, JOB_EXECUTION_COMPLETE, SCHEDULE_TASK_GUIDANCE } from '../automation/job-policy.mjs';
 
 const foregroundBrowserSpec = specs.find(spec => spec.function.name === 'browser');
