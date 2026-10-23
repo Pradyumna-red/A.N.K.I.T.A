@@ -1,5 +1,7 @@
 import { resolvePath, assertReadable, readTextFile, writeTextFile } from "../shared/_shared.mjs";
 import { rememberPlan, executionPlan } from '../shared/_approval-plan.mjs';
+import { backupPath } from "../shared/_backup.mjs";
+import { audit } from "../shared/_audit.mjs";
 import { diffText, stats, touchedRange } from "../shared/_diff.mjs";
 
 export const name = "edit_lines";
@@ -153,8 +155,10 @@ export function run(args, ctx) {
   if (plan.error) return `Error: ${plan.error}`;
   if (!plan.diff.changed) return `No change: ${plan.p}`;
 
+  const backup = backupPath(plan.p, ctx);
   writeTextFile(plan.p, plan.next, plan.file.eol);
+  audit(ctx, { tool: name, path: plan.p, backup });
   return `Edited ${plan.p} by line\n${stats(plan.diff)}${
-    touchedRange(plan.diff) ? ` \u00b7 lines ${touchedRange(plan.diff).from}-${touchedRange(plan.diff).to}` : ""
-  }\n${plan.edits.map((e) => `  ${e.mode} lines ${e.start}-${e.end}`).join("\n")}`;
+    touchedRange(plan.diff) ? ` · lines ${touchedRange(plan.diff).from}-${touchedRange(plan.diff).to}` : ""
+  }\n${plan.edits.map((e) => `  ${e.mode} lines ${e.start}-${e.end}`).join("\n")}${backup ? `\nBackup: ${backup}` : ""}`;
 }

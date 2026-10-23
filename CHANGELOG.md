@@ -7,7 +7,14 @@ continuously updated narrative lives in [docs/reference/changelog.md](docs/refer
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- **Trust & safety batch (Ankita ideas #8).** Undo for destructive actions via
+  `.ankita_backups` + `restore_file`, size-aware delete/move previews,
+  append-only scrubbed audit log (`.ankita_backups/audit.jsonl`, owner-only),
+  and skill permission manifests (`allowed-tools`, `touches` with
+  `isToolAllowedForSkill` gate). Verified by
+  `test/tools/trust-safety.test.mjs` (9 tests).
 
 ## [2.6.0] - 2026-10-14
 

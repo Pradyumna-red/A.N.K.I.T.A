@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import { rememberPlan, executionPlan } from '../shared/_approval-plan.mjs';
 import { resolvePath, assertReadable, readTextFile, writeTextFile, restoreTrailing } from "../shared/_shared.mjs";
+import { backupPath } from "../shared/_backup.mjs";
+import { audit } from "../shared/_audit.mjs";
 import { diffText, renderDiff, stats, touchedRange } from "../shared/_diff.mjs";
 
 export const name = "edit_file";
@@ -168,6 +170,8 @@ export function run(args, ctx) {
   if (plan.error) return `Error: ${plan.error}`;
   if (!plan.diff.changed) return `No change: ${plan.p} already contains that text.`;
 
+  const backup = backupPath(plan.p, ctx);
   writeTextFile(plan.p, plan.next, plan.file.eol);
-  return `Edited ${plan.p}\n${describe(plan)}\n${plan.applied.map(e => `edit ${e.index+1}: ${e.match} match (${e.count})`).join('\n')}`;
+  audit(ctx, { tool: name, path: plan.p, backup });
+  return `Edited ${plan.p}\n${describe(plan)}\n${plan.applied.map(e => `edit ${e.index+1}: ${e.match} match (${e.count})`).join('\n')}${backup ? `\nBackup: ${backup}` : ""}`;
 }

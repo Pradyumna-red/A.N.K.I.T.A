@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolvePath, assertNotWorkspaceRoot } from "../shared/_shared.mjs";
+import { audit } from "../shared/_audit.mjs";
 
 export const name = "move_file";
 export const description = "Move or rename a file or directory. Refuses to overwrite an existing destination.";
@@ -15,7 +16,13 @@ export const parameters = {
 };
 
 export function approval(args, ctx) {
-  return `move  ${resolvePath(args.source, ctx)}\n  to  ${resolvePath(args.destination, ctx)}`;
+  const src = resolvePath(args.source, ctx);
+  let detail = "";
+  try {
+    const stat = fs.statSync(src);
+    detail = stat.isDirectory() ? `  (${fs.readdirSync(src).length} top-level entries)` : `  (${stat.size}b)`;
+  } catch {}
+  return `move  ${src}${detail}\n  to  ${resolvePath(args.destination, ctx)}`;
 }
 
 export function run(args, ctx = {}) {
@@ -27,5 +34,6 @@ export function run(args, ctx = {}) {
   if (fs.existsSync(dst)) throw new Error(`destination already exists: ${dst} (delete it first or pick another name)`);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   fs.renameSync(src, dst);
+  audit(ctx, { tool: name, source: src, destination: dst });
   return `Moved ${src} to ${dst}`;
 }

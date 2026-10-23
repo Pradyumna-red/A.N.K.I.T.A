@@ -8,6 +8,7 @@ import * as searchFiles from "./filesystem/search-files.mjs";
 import * as glob from "./filesystem/glob.mjs";
 import * as moveFile from "./filesystem/move-file.mjs";
 import * as deleteFile from "./filesystem/delete-file.mjs";
+import * as restoreFile from "./filesystem/restore-file.mjs";
 import * as fetchUrl from "./web/fetch-url.mjs";
 import * as httpRequest from './web/http-request.mjs';
 import * as applyPatch from './filesystem/apply-patch.mjs';
@@ -38,6 +39,7 @@ export const CORE = [
   glob,
   moveFile,
   deleteFile,
+  restoreFile,
   runCommand,
   jobStatus,
   jobStop,

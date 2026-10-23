@@ -104,7 +104,7 @@ test('rolls back all originals when a replacement fails', t => {
   assert.match(result, /^Error:.*injected replacement failure/);
   assert.equal(w.read('a'), 'old a\n');
   assert.equal(w.read('b'), 'old b\n');
-  assert.deepEqual(fs.readdirSync(w.cwd).sort(), ['a', 'b']);
+  assert.deepEqual(fs.readdirSync(w.cwd).filter(n => n !== '.ankita_backups').sort(), ['a', 'b']);
 });
 
 test('preserves executable permission and applies explicit mode changes on POSIX', { skip: process.platform === 'win32' }, t => {
@@ -153,5 +153,5 @@ test('rollback restores deleted files and removes newly created directories', t 
   assert.match(result, /^Error:.*injected deletion failure/);
   assert.equal(w.read('a'), 'one\n');
   assert.equal(w.read('b'), 'two\n');
-  assert.deepEqual(fs.readdirSync(w.cwd).sort(), ['a', 'b']);
+  assert.deepEqual(fs.readdirSync(w.cwd).filter(n => n !== '.ankita_backups').sort(), ['a', 'b']);
 });

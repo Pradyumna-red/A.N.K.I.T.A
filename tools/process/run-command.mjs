@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { JobOutput, clamp, jobsOf, jobSnapshot, notifyJob, waitForExit } from '../shared/_jobs.mjs';
+import { audit } from '../shared/_audit.mjs';
 import { killTree } from '../shared/_job-tree.mjs';
 import { spawnWindowsJob } from '../shared/_job-launcher.mjs';
 export { waitForExit } from '../shared/_jobs.mjs';
@@ -57,6 +58,7 @@ export async function run(args, ctx = {}) {
     if (job.done) return;
     job.done = true; job.code = code; job.signal = signal; job.error = error ?? job.error; job.endedAt = Date.now();
     clearTimeout(deadline);
+    audit(ctx, { tool: name, command: args.command, cwd, exit: code, signal, error: job.error, durationMs: job.endedAt - job.startedAt, background: job.background });
     if (job.background) notifyJob(ctx, 'finished', job);
   };
   child.once('error', err => finish(null, null, err.message));

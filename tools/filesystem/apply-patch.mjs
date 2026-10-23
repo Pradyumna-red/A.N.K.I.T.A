@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import { rememberPlan, executionPlan } from '../shared/_approval-plan.mjs';
 import { resolvePath } from '../shared/_shared.mjs';
+import { backupPath } from '../shared/_backup.mjs';
+import { audit } from '../shared/_audit.mjs';
 import path from 'node:path';
 import { diffText, stats } from '../shared/_diff.mjs';
 
@@ -336,7 +338,17 @@ export function run(args, ctx) {
   const plan = executionPlan(name, args, ctx, prepare);
   if (plan.error) return `Error: ${plan.error}`;
   try {
+    const backups = [];
+    for (const [p] of plan.snapshots) {
+      try {
+        if (fs.existsSync(p)) {
+          const b = backupPath(p, ctx);
+          if (b) backups.push(b);
+        }
+      } catch {}
+    }
     commit(plan);
-    return `Applied patch to ${plan.files.length} file${plan.files.length === 1 ? '' : 's'}.\n${plan.files.map(describe).join('\n')}`;
+    audit(ctx, { tool: name, files: plan.files.length, backups });
+    return `Applied patch to ${plan.files.length} file${plan.files.length === 1 ? '' : 's'}.\n${plan.files.map(describe).join('\n')}${backups.length ? `\nBackups: ${backups.length} kept` : ""}`;
   } catch (error) { return `Error: ${error.message}`; }
 }

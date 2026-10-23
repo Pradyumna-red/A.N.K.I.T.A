@@ -2,6 +2,8 @@ import fs from "node:fs";
 import { rememberPlan, executionPlan } from '../shared/_approval-plan.mjs';
 import path from "node:path";
 import { resolvePath, readTextFile, writeTextFile } from "../shared/_shared.mjs";
+import { backupPath } from "../shared/_backup.mjs";
+import { audit } from "../shared/_audit.mjs";
 import { diffText, stats } from "../shared/_diff.mjs";
 
 export const name = "write_file";
@@ -50,11 +52,13 @@ export function run(args, ctx) {
   if (info.error) return `Error: ${info.error}`;
 
   if (info.parent) fs.mkdirSync(info.parent, { recursive: true });
+  const backup = info.existed ? backupPath(info.p, ctx) : null;
   writeTextFile(info.p, info.created, "\n");
+  audit(ctx, { tool: name, path: info.p, existed: info.existed, backup });
 
   const lines = (args.content ?? "").split("\n").length;
   if (!info.existed) return `Created ${info.p} (${lines} lines).`;
 
   const diff = diffText(info.previous, info.created);
-  return `Overwrote ${info.p}\n${stats(diff)} \u00b7 now ${lines} lines`;
+  return `Overwrote ${info.p}\n${stats(diff)} · now ${lines} lines${backup ? `\nBackup: ${backup}` : ""}`;
 }
