@@ -15,6 +15,10 @@ downloaded-images/
 
 # Local verification logs, generated launch media and crash dumps are not source.
 .commandcode/
+.qoder/
+
+# Undo snapshots and the scrubbed audit log are per-workspace runtime state.
+.ankita_backups/
 launch-video/
 docs/media/ankita-launch-film.html
 coverage/
