@@ -11,6 +11,7 @@ import { BrowserRunCard } from './BrowserStage';
 import { JobsPill } from './JobsPill';
 import { JobApprovalCard } from './JobCard';
 import { CompanionStatus } from './CompanionStatus';
+import { BrowserHelperSetup } from './BrowserHelperSetup';
 import { TeammateAvatar } from './TeammateAvatar';
 import { COMPOSE_EVENT } from '../../../shared/desktop-layout.mjs';
 import { CHATGPT_BROWSER_PROVIDER, chatgptHasPendingReply } from '../../../shared/chatgpt-browser.mjs';
@@ -36,6 +37,7 @@ export function ChatPane({ teammate, messages, running, models, projects, defaul
   const chatgpt = useChatGptConnection(provider === CHATGPT_BROWSER_PROVIDER);
   const [menu, setMenu] = useState(false);
   const [projectMenu, setProjectMenu] = useState(false);
+  const [helperOpen, setHelperOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const scroll = useRef<HTMLDivElement>(null);
   // A ref, not state: the follow decision must be read synchronously by the
@@ -62,6 +64,13 @@ export function ChatPane({ teammate, messages, running, models, projects, defaul
 
   useLayoutEffect(() => { setMenu(false); setProjectMenu(false); stick.current = true; setAtBottom(true); const element = scroll.current; if (element) element.scrollTop = element.scrollHeight; }, [teammate?.id]);
 
+  useEffect(() => {
+    if (!helperOpen) return;
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') setHelperOpen(false); };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [helperOpen]);
+
   const onScroll = () => {
     const element = scroll.current;
     if (!element) return;
@@ -82,17 +91,16 @@ export function ChatPane({ teammate, messages, running, models, projects, defaul
   const assignedProject = projects.find(project => project.id === teammate.projectId);
   const instructions = loadedSkills?.length ? `Instructions loaded: ${loadedSkills.join(', ')}` : null; // Display actual request inclusion supplied by the engine; absent receipts retain the persona subtitle.
   const needsReplyCheck = provider === CHATGPT_BROWSER_PROVIDER && (chatgptHasPendingReply(chatgpt) || Boolean(chatgpt?.blockedReason));
-  const statusLabel = running ? 'Working' : needsReplyCheck ? 'Check reply' : 'Ready';
 
   return <main className="chat-pane">
     <header className="chat-header drag-region">
       <div className="header-left no-drag">
         {!sidebarOpen && <>{chrome === 'custom' && <WindowControls />}<button className="icon-button header-sidebar-toggle" onClick={onToggleSidebar} aria-label="Show sidebar" title="Show sidebar (Ctrl+B)" aria-expanded={false}><Icon name="panelLeft" size={18} /></button></>}
-        <div className="header-identity"><CompanionStatus messages={messages} running={running} teammate={teammate} /><div className="header-copy"><div className="header-name-line"><h2 title={teammate.name}>{teammate.name}</h2><span className={`conversation-state ${running ? 'working' : ''}`}><i />{statusLabel}</span></div><p title={instructions || teammate.persona} role={instructions ? 'status' : undefined}>{instructions || teammate.persona || 'Your teammate'}</p></div></div>
+        <div className="header-identity"><CompanionStatus messages={messages} running={running} teammate={teammate} /><div className="header-copy"><div className="header-name-line"><h2 title={teammate.name}>{teammate.name}</h2></div><p title={instructions || teammate.persona} role={instructions ? 'status' : undefined}>{instructions || teammate.persona || 'Your teammate'}</p></div></div>
       </div>
       <div className="header-actions no-drag">
         <button className="icon-button palette-launcher" onClick={() => window.dispatchEvent(new Event('ankita:palette'))} aria-label="Open command palette" title="Commands, skills and tasks (Ctrl+K)"><Icon name="search" size={16} /></button>
-        <div className="menu-wrap"><button className="icon-button header-more" aria-label="Conversation options" aria-expanded={menu} onClick={() => setMenu(!menu)}><Icon name="more" size={19} /></button>{menu && <div className="header-menu" role="menu"><button onClick={() => { setMenu(false); onEdit(); }}><Icon name="edit" size={16} /> Edit teammate</button><button onClick={() => { setMenu(false); onClear(); }}><Icon name="panel" size={16} /> Clear conversation</button><span className="menu-divider" /><button className="danger" onClick={() => { setMenu(false); onDelete(); }}><Icon name="trash" size={16} /> Delete teammate</button></div>}</div>
+        <div className="menu-wrap"><button className="icon-button header-more" aria-label="Conversation options" aria-expanded={menu} onClick={() => setMenu(!menu)}><Icon name="more" size={19} /></button>{menu && <div className="header-menu" role="menu"><button onClick={() => { setMenu(false); onEdit(); }}><Icon name="edit" size={16} /> Edit teammate</button><button onClick={() => { setMenu(false); onClear(); }}><Icon name="panel" size={16} /> Clear conversation</button><button onClick={() => { setMenu(false); setHelperOpen(true); }}><Icon name="browser" size={16} /> Browser helper</button><span className="menu-divider" /><button className="danger" onClick={() => { setMenu(false); onDelete(); }}><Icon name="trash" size={16} /> Delete teammate</button></div>}</div>
       </div>
     </header>
     <div className="chat-context-bar">
@@ -113,5 +121,11 @@ export function ChatPane({ teammate, messages, running, models, projects, defaul
     {!atBottom && <button className="jump-to-bottom" onClick={jump} aria-label="Jump to latest"><Icon name="chevron" size={17} /><span>Latest</span></button>}
     <div className="jobs-composer"><JobsPill jobs={jobs} onEdit={onEditJob} onWatch={onWatchJob} />
       <Composer threadId={teammate.id} name={teammate.name} messages={messages} running={running} sendDisabled={needsReplyCheck} models={models} model={teammate.model || defaultModel} provider={provider} projects={projects} projectId={teammate.projectId} commandsRevision={commandsRevision} onProject={onProject} onCommand={onCommand} onModel={onModel} onSend={onSend} onStop={onStop} /></div>
+    {helperOpen && <div className="modal-backdrop no-drag" onClick={event => { if (event.target === event.currentTarget) setHelperOpen(false); }}>
+      <div className="helper-dialog" role="dialog" aria-modal="true" aria-labelledby="browser-helper-title">
+        <div className="helper-dialog-head"><h2 id="browser-helper-title">Browser helper</h2><button type="button" className="icon-button" aria-label="Close browser helper" autoFocus onClick={() => setHelperOpen(false)}><Icon name="close" size={16} /></button></div>
+        <BrowserHelperSetup />
+      </div>
+    </div>}
   </main>;
 }

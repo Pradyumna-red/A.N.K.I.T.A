@@ -184,14 +184,15 @@ try {
   assert.ok(jobsBounds.x >= 0 && jobsBounds.x + jobsBounds.width <= 640 && jobsBounds.y + jobsBounds.height <= 720);
   await page.getByRole('button', { name: 'Create a task in chat', exact: true }).click();
   assert.equal(await page.getByLabel('Message Chief').inputValue(), 'Schedule a task: ', 'legacy compose actions still prepare their original text');
+  await page.getByRole('button', { name: 'Conversation options', exact: true }).click();
   await page.getByRole('button', { name: 'Browser helper', exact: true }).click();
   await page.getByRole('button', { name: 'Copy pairing code', exact: true }).click();
   await page.getByLabel('Browser pairing code').waitFor();
   await settleMotion(page);
-  const helperBounds = await page.locator('.companion-helper-popover').boundingBox();
+  const helperBounds = await page.locator('.helper-dialog').boundingBox();
   assert.ok(helperBounds.x >= 0 && helperBounds.x + helperBounds.width <= 640 && helperBounds.y + helperBounds.height <= 720);
   await page.screenshot({ path: path.join(evidence, 'compact-helper.png') });
-  await page.getByRole('button', { name: 'Browser helper', exact: true }).click();
+  await page.getByRole('button', { name: 'Close browser helper', exact: true }).click();
   console.log('PASS compact teammate switching, window controls, creation dialog, scheduled tasks and helper setup');
   await page.getByRole('button', { name: 'Collapse sidebar' }).click();
   await page.getByRole('button', { name: 'Show sidebar' }).click();

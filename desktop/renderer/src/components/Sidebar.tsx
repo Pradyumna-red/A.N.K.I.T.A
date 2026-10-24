@@ -60,7 +60,7 @@ export function Sidebar({ teammates, selectedId, search, onSearch, onSelect, onC
       </button>) : <div className="sidebar-empty">No teammates match “{search}”.</div>}
     </nav>
     <div className="sidebar-footer">
-      <span className={`status-indicator ${phase === 'ready' ? 'live' : ''}`} />
+      <span className={`status-indicator ${phase === 'ready' ? 'live' : phase === 'error' ? 'error' : phase === 'connecting-tools' ? 'busy' : ''}`} />
       <div><strong>{phase === 'ready' ? 'Ready when you are' : phase === 'connecting-tools' ? 'Connecting tools' : phase === 'error' ? 'Something went wrong' : 'Starting Ankita'}</strong><small>{provider === CHATGPT_BROWSER_PROVIDER ? CHATGPT_BROWSER_LABEL : provider} · {model || (provider === CHATGPT_BROWSER_PROVIDER ? CHATGPT_CURRENT_MODEL_LABEL : 'Choosing a model')}{toolsCount ? ` · ${toolsCount} tool${toolsCount === 1 ? '' : 's'}` : ''}</small></div>
     </div>
     </div></div>

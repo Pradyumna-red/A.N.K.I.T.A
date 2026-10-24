@@ -40,9 +40,31 @@ continuously updated narrative lives in [docs/reference/changelog.md](docs/refer
   write scrubbed `subagent-<id>.json` transcripts. Delegation is discovered
   through `find_tools` and is absent from background jobs, the daemon and
   one-shot routines. See `docs/subagents.md`.
+- **Desktop UI polish.** Connection state now uses one pill and dot language
+  across chat, sidebar, jobs, browser, plugins and ChatGPT settings. Providers
+  and ChatGPT setup keep one reading column with grouped actions, session
+  controls and a single save bar. Settings share tokenized inputs, switches,
+  focus rings and destructive confirmations. See
+  `docs/findings/2026-10-24-desktop-ui-polish.md`.
 
 ### Fixed
 
+- **Chat header and composer are quieter.** The green `Ready` / `Working` pill
+  and the mascot's `↗` browser-helper badge are removed. Helper setup now lives
+  in the conversation menu (`Conversation options → Browser helper`) and the
+  island Settings view. The composer keeps its rounded focus border without the
+  extra square focus rectangle around the text box.
+- **Failures no longer expose IPC or port strings.** Engine errors are humanized
+  into compact notices (icon, title, two lines) with the hint and original
+  message behind an on-demand `Details` popover instead of a card that stretches
+  over the chat. Plugins, Skills, Settings and the floating island reuse the
+  same cleaner instead of duplicating the regex.
+- **A busy capture bridge no longer rejects `engine:invoke`.** If another Ankita
+  owns the remembered companion port, setup returns an actionable unavailable
+  state and background capture requests return inert values; passive mascot
+  hover/focus stays silent and tooltips never show capture text. Interrupted
+  `npm run desktop:dev` sessions now terminate the whole Electron tree, so a
+  stale host cannot keep owning the port and scheduler.
 - **Backups no longer share filename prefixes.** Each original path has its own
   backup directory, so `foo` can never list, restore or prune `foo.txt` backups
   and pruning one path leaves its siblings untouched.

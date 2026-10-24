@@ -23,7 +23,8 @@
 .rail-button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 50px; min-height: 54px; border: 0; border-radius: 13px; background: transparent; color: var(--text-dim); font-size: 9px; transition: background var(--desktop-motion), color var(--desktop-motion); }
 .rail-button:hover { color: var(--text); background: var(--surface); }
 .rail-button.active { background: var(--surface); color: var(--text); }
-.rail-button.active::before { content: ''; position: absolute; left: -6px; top: 18px; bottom: 18px; width: 2px; border-radius: 2px; background: var(--text-soft); }
+.rail-button.active::before { content: ''; position: absolute; left: -6px; top: 18px; bottom: 18px; width: 2px; border-radius: 2px; background: var(--gold); }
+.rail-button.active svg { color: var(--gold-light); }
 .rail-settings { margin-top: auto; }
 .rail-unread { position: absolute; width: 5px; height: 5px; right: 12px; top: 9px; border-radius: 50%; background: var(--success); }
 .rail-teammates, .rail-create { display: none; }
@@ -50,7 +51,7 @@
 .desktop-workbench .sidebar-footer { min-height: 66px; padding: 15px 8px; gap: 8px; border-color: var(--edge); }
 .desktop-workbench .sidebar-footer strong { color: var(--text-soft); font-size: 10px; font-weight: 500; }
 .desktop-workbench .sidebar-footer small { color: var(--text-dim); font-size: 9px; }
-.desktop-workbench .status-indicator.live { box-shadow: none; }
+.desktop-workbench .status-indicator { flex: 0 0 auto; }
 .desktop-workbench .sidebar-resizer:hover { background: var(--edge-strong); }
 
 /* Small, static mascot faces avoid a canvas/RAF for every saved conversation. */
@@ -71,10 +72,6 @@
 .header-name-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .desktop-workbench .header-identity h2 { font-size: 14px; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .desktop-workbench .header-copy > p { max-width: none; margin: 5px 0 0; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-state { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; font-size: 10px; color: var(--text-dim); }
-.conversation-state i { width: 4px; height: 4px; border-radius: 50%; background: var(--success); }
-.conversation-state.working { color: var(--gold-light); }
-.conversation-state.working i { background: currentColor; }
 .desktop-workbench .header-companion { min-width: 42px; max-width: none; overflow: visible; margin: 0; }
 .desktop-workbench .header-actions { flex: 0 0 auto; gap: 3px; }
 .chat-context-bar { display: flex; align-items: center; justify-content: space-between; min-height: 47px; padding: 0 24px; gap: 12px; border-bottom: 1px solid var(--edge); background: var(--desktop-panel); }
@@ -115,7 +112,9 @@
 .desktop-workbench .thinking-row { color: var(--text-dim); }
 .desktop-workbench .composer-area { padding: 10px 32px 22px; background: transparent; }
 .desktop-workbench .composer-shell { max-width: calc(var(--desktop-content-width) - 64px); border-radius: 18px; background: var(--desktop-panel); border-color: var(--edge-strong); box-shadow: 0 8px 24px #0002; }
-.desktop-workbench .composer-shell:focus-within { background: var(--desktop-panel); border-color: var(--edge-strong); }
+.desktop-workbench .composer-shell:focus-within { background: var(--desktop-panel); border-color: var(--accent-edge); box-shadow: 0 0 0 3px var(--accent-soft), 0 8px 24px #0002; }
+/* The shell's focus-within border is the focus cue; the global ring drew a second frame around the text box. */
+.desktop-workbench .composer-shell textarea:focus-visible { outline: none; }
 .desktop-workbench .composer-shell textarea { padding: 17px 18px 10px; min-height: 58px; font-size: 14px; }
 .desktop-workbench .composer-shell textarea::placeholder { color: var(--text-dim); }
 .desktop-workbench .composer-bottom { padding: 0 12px 11px; }
@@ -160,9 +159,9 @@
 .desktop-workbench .settings-nav { background: var(--desktop-panel); }
 .desktop-workbench .settings-panel { background: var(--desktop-panel); border-color: var(--edge); border-radius: 12px; }
 .desktop-workbench :is(.settings-content h2, .settings-about h2, .teammate-dialog h2, .approval-dialog h2, .auth-dialog h2, .confirm-dialog h2, .onboarding-dialog h2, .plugins-drawer h2, .plugins-confirm h2, .secure-store-dialog h2) { font: 600 22px/1.25 var(--companion-font); letter-spacing: -.5px; }
-.desktop-workbench :is(.teammate-dialog, .approval-dialog, .auth-dialog, .confirm-dialog, .onboarding-dialog, .plugins-drawer, .plugins-confirm) { background: var(--desktop-panel); border-color: var(--edge-strong); border-radius: 20px; }
+.desktop-workbench :is(.teammate-dialog, .approval-dialog, .auth-dialog, .confirm-dialog, .helper-dialog, .onboarding-dialog, .plugins-drawer, .plugins-confirm) { background: var(--desktop-panel); border-color: var(--edge-strong); border-radius: 20px; }
 .desktop-workbench :is(.settings-provider-card, .settings-theme-card) { background: var(--desktop-panel); border-color: var(--edge); border-radius: 10px; }
-.desktop-workbench :is(.settings-provider-card.active, .settings-theme-card.active) { background: var(--surface); border-color: var(--gold); }
+.desktop-workbench :is(.settings-provider-card.active, .settings-theme-card.active) { background: var(--accent-soft); border-color: var(--accent-edge); }
 .desktop-workbench :is(.settings-about-mark, .settings-nav-brand) { font-family: var(--companion-font); }
 .desktop-workbench :is(.settings-field input, .settings-field select, .teammate-dialog input, .teammate-dialog textarea, .teammate-dialog select) { background: var(--canvas); border-color: var(--edge-strong); }
 
@@ -224,6 +223,7 @@
 .desktop-workbench :is(.section-primary, .section-secondary, .settings-primary, .settings-secondary):active:not(:disabled) { transform: scale(.97); }
 .desktop-workbench :is(.section-primary, .section-secondary):disabled { opacity: .4; cursor: not-allowed; }
 .desktop-workbench :focus { outline: none; }
+.desktop-workbench :focus-visible { outline: 2px solid color-mix(in srgb, var(--gold) 72%, transparent); outline-offset: 2px; }
 .desktop-workbench :is(.icon-button, .rail-button, .teammate-row, .model-option, .settings-nav-item, .upcoming-job, .projects-list > button):focus-visible { background: var(--surface-hover); color: var(--text); }
 .desktop-workbench :is(.section-primary, .section-secondary, .settings-primary, .settings-secondary):focus-visible { filter: brightness(1.15); text-decoration: underline; text-underline-offset: 3px; }
 .section-eyebrow { display: block; font-size: 10px; font-weight: 550; color: var(--text-dim); letter-spacing: .025em; }
@@ -373,7 +373,7 @@
 .desktop-workbench .settings-section-lead p { margin: 0; }
 .settings-value-tag { color: var(--text-dim); font-size: 9px; border: 1px solid var(--edge); border-radius: 6px; padding: 5px 7px; }
 .desktop-workbench .settings-label, .desktop-workbench .settings-field label { font-size: 11px; color: var(--text-soft); }
-.desktop-workbench .settings-select { border-color: var(--edge-strong); background: var(--canvas); color: var(--text); border-radius: 9px; }
+.desktop-workbench .settings-select { border-color: var(--edge-strong); background-color: var(--canvas); color: var(--text); border-radius: 9px; }
 .desktop-workbench :is(.settings-select, .settings-field input, .settings-field select, .project-form input, .project-form textarea, .teammate-dialog input, .teammate-dialog textarea, .routine-sheet input:not([type=checkbox]), .routine-sheet textarea, .routine-sheet select, .plugins-connect-form input):focus { border-color: var(--edge-strong); }
 .desktop-workbench .plugins-search:focus-within { border-color: var(--edge-strong); }
 .settings-model-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--text-dim); font-size: 10px; padding-top: 12px; }

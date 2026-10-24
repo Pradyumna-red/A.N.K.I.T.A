@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { BrowserPlugin, BrowserPluginsOverview } from '../../../shared/wire';
 import { Icon } from './Icons';
-
-function errorText(error: unknown) {
-  return (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method ['"]engine:invoke['"]:\s*(?:Error:\s*)?/, '');
-}
+import { cleanErrorMessage } from '../../../shared/error-notices.mjs';
 
 function BrowserMark({ mode }: { mode: 'isolated' | 'local' }) {
   return mode === 'isolated'
@@ -71,7 +68,7 @@ export function BrowserPluginsSection() {
   const [selected, setSelected] = useState<'isolated' | 'local' | null>(null);
   const refresh = useCallback(async () => {
     try { setOverview(await window.ankita.invoke<BrowserPluginsOverview>('browserPluginsOverview')); }
-    catch (cause) { setError(errorText(cause)); }
+    catch (cause) { setError(cleanErrorMessage(cause)); }
   }, []);
   useEffect(() => { void refresh(); return window.ankita.onEvent(event => {
     if (event.type === 'browser-plugins-changed') void refresh();
@@ -80,7 +77,7 @@ export function BrowserPluginsSection() {
   const act = async (mode: string, action: string, payload?: object, success?: string) => {
     setBusy(mode); setError(''); setNotice('');
     try { await window.ankita.invoke(action, payload); if (success) setNotice(success); await refresh(); }
-    catch (cause) { setError(errorText(cause)); }
+    catch (cause) { setError(cleanErrorMessage(cause)); }
     finally { setBusy(null); }
   };
   const cards = overview ? [overview.isolated, overview.local] : [];

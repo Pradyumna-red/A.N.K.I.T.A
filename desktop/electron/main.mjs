@@ -15,6 +15,7 @@ import { BROWSER_PREVIEW_POLL } from '../shared/browser-progress.mjs';
 import { CONFIG_DIR } from '../../src/core/config.mjs';
 import { shutdownFileToolWorkers } from '../../src/tooling/tool-worker.mjs';
 import { CompanionCapture } from './companion-capture.mjs';
+import { runCaptureAction } from './capture-actions.mjs';
 import { CAPTURE_ACTIONS, CAPTURE_EVENT } from '../browser-helper/protocol.mjs';
 import { CHATGPT_CONNECTION_ACTIONS } from '../shared/chatgpt-browser.mjs';
 import { chatgptResourcePaths } from './chatgpt-resources.mjs';
@@ -458,15 +459,11 @@ ipcMain.handle('engine:invoke', async (event, action, payload) => {
   }
   await current.init();
   if (Object.values(CAPTURE_ACTIONS).includes(action)) {
-    const capture = await captureService(current);
-    const surface = fromIsland ? 'island' : 'main';
-    const sourceId = event.sender.id;
-    if (action === CAPTURE_ACTIONS.setup) return capture.setup();
-    if (action === CAPTURE_ACTIONS.register) return capture.register({ ticketId: payload?.ticketId, threadId: payload?.threadId, surface, sourceId });
-    if (action === CAPTURE_ACTIONS.cancel) return capture.cancel(payload?.ticketId, sourceId);
-    if (action === CAPTURE_ACTIONS.inbox) return capture.inbox(surface);
-    if (action === CAPTURE_ACTIONS.ack) return capture.ack(payload?.id, surface);
-    if (action === CAPTURE_ACTIONS.openHelper) return shell.openPath(app.isPackaged ? path.join(process.resourcesPath, HELPER_DIRECTORY) : path.resolve(here, '..', HELPER_DIRECTORY));
+    return runCaptureAction({
+      action, payload, surface: fromIsland ? 'island' : 'main', sourceId: event.sender.id,
+      start: () => captureService(current),
+      openHelper: () => shell.openPath(app.isPackaged ? path.join(process.resourcesPath, HELPER_DIRECTORY) : path.resolve(here, '..', HELPER_DIRECTORY)),
+    });
   }
   switch (action) {
     case 'palette:query': return current.paletteQuery(payload?.query);
