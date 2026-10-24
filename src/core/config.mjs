@@ -36,6 +36,18 @@ const DEFAULTS = {
   maxToolChars: DEFAULT_TOOL_OUTPUT_BYTES,
   maxToolSteps: 100,
   maxToolCalls: 60,
+  // Sub-agent delegation: one level deep by default. Read-only research agents
+  // overlap through the existing read-only batch; write-capable workers remain
+  // serialized barriers so two agents never edit the same workspace at once.
+  subagentsEnabled: true,
+  maxSubagentDepth: 1,
+  maxConcurrentSubagents: 4,
+  maxSubagentsPerTurn: 8,
+  subagentMaxToolSteps: 24,
+  subagentMaxToolCalls: 24,
+  subagentTimeoutMs: 300000,
+  subagentMaxTokens: 120000,
+  subagentMaxResultBytes: 12000,
   browserToolFocus: false, // Boolean: opt-in until repeated live capability parity clears the browser-lab gate.
   browserHistoryCompaction: false, // Boolean: opt-in request projection; mixed-page evidence retention still needs live parity.
   browserRuntimeV2: false, // Boolean: experimental structured browser runtime; enable only after paired capability/speed gates.
@@ -228,6 +240,15 @@ export function loadConfig(envPath = path.join(process.cwd(), ".env"), { globalE
     // bug this bound exists to prevent, so garbage falls back to the default.
     maxToolSteps: clampInt(pick("MAX_TOOL_STEPS"), 1, 200, DEFAULTS.maxToolSteps),
     maxToolCalls: clampInt(pick("MAX_TOOL_CALLS"), 1, 500, DEFAULTS.maxToolCalls),
+    subagentsEnabled: onOff(pick("SUBAGENTS_ENABLED"), DEFAULTS.subagentsEnabled),
+    maxSubagentDepth: clampInt(pick("MAX_SUBAGENT_DEPTH"), 0, 3, DEFAULTS.maxSubagentDepth),
+    maxConcurrentSubagents: clampInt(pick("MAX_CONCURRENT_SUBAGENTS"), 1, 8, DEFAULTS.maxConcurrentSubagents),
+    maxSubagentsPerTurn: clampInt(pick("MAX_SUBAGENTS_PER_TURN"), 1, 32, DEFAULTS.maxSubagentsPerTurn),
+    subagentMaxToolSteps: clampInt(pick("SUBAGENT_MAX_TOOL_STEPS"), 1, 60, DEFAULTS.subagentMaxToolSteps),
+    subagentMaxToolCalls: clampInt(pick("SUBAGENT_MAX_TOOL_CALLS"), 1, 60, DEFAULTS.subagentMaxToolCalls),
+    subagentTimeoutMs: clampInt(pick("SUBAGENT_TIMEOUT_MS"), 10000, 1800000, DEFAULTS.subagentTimeoutMs),
+    subagentMaxTokens: clampInt(pick("SUBAGENT_MAX_TOKENS"), 1000, 1000000, DEFAULTS.subagentMaxTokens),
+    subagentMaxResultBytes: clampInt(pick("SUBAGENT_MAX_RESULT_BYTES"), 1000, 64000, DEFAULTS.subagentMaxResultBytes),
     browserToolFocus: onOff(pick("BROWSER_TOOL_FOCUS"), DEFAULTS.browserToolFocus),
     browserHistoryCompaction: onOff(pick("BROWSER_HISTORY_COMPACTION"), DEFAULTS.browserHistoryCompaction),
     browserRuntimeV2: onOff(pick("BROWSER_RUNTIME_V2"), DEFAULTS.browserRuntimeV2),
