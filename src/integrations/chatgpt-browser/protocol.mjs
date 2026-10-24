@@ -25,8 +25,10 @@ export const TOOL_RESULT_MODE = Object.freeze({ api: 'api', mcp: 'mcp' }); // Pr
 export const LOCAL_HTTP_PROTOCOL = 'http:'; // Loopback transport scheme; public HTTPS is a separately approved tunnel.
 export const BEARER_PREFIX = 'Bearer '; // HTTP Authorization grammar, shared with the extension-generated config.
 export const BROWSER_BINDING_FIELDS = Object.freeze(['leaseId', 'epoch', 'tabId', 'conversationId', 'browserId', 'threadId', 'workspacePath']); // Full host ownership, including the selected project and teammate.
-export const sameBrowserBinding = (a, b) => Boolean(a && b && BROWSER_BINDING_FIELDS.every(key => a[key] === b[key]));
-export const BROWSER_BLOCK_REASONS = Object.freeze(['quota', 'authorization', 'refusal', 'model-unavailable', 'transport']); // Observed provider notices; none authorize a fallback account, chat, or model.
+export const sameBrowserBinding = (a, b) => Boolean(a && b && a.openingId === b.openingId && BROWSER_BINDING_FIELDS.every(key =>
+  key === 'conversationId' && a.openingId && (a.conversationId === null || b.conversationId === null) ? true : a[key] === b[key])); // A single opening may acquire its first real chat; known chat IDs never alias each other.
+export const BROWSER_TRANSPORT_NOTICE = 'transport'; // A transient stream failure pauses actions; read-only observation of the already sent reply can continue.
+export const BROWSER_BLOCK_REASONS = Object.freeze(['quota', 'authorization', 'refusal', 'model-unavailable', BROWSER_TRANSPORT_NOTICE]); // Observed provider notices; none authorize a fallback account, chat, or model.
 export function normalizeRequestId(value) {
   if (typeof value !== 'string') return null;
   const id = value.split(REQUEST_ID_SEPARATOR)[0].trim();

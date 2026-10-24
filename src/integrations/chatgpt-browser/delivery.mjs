@@ -18,9 +18,9 @@ export class BrowserDelivery {
   async readback(binding) {
     return (await this.store.list(binding)).find(row => [OPERATION_OUTCOMES.dispatched, OPERATION_OUTCOMES.accepted, OPERATION_OUTCOMES.uncertain].includes(row.outcome)) ?? null;
   }
-  async fail(id, binding) {
-    const row = await this.store.fail(id, binding);
-    await this.onEvent({ type: row.outcome, operationId: id, binding }); return row;
+  async fail(id, binding, reason) {
+    const row = await this.store.fail(id, binding, reason);
+    await this.onEvent({ type: row.outcome, operationId: id, binding, reason: row.failureReason }); return row;
   }
   async receipt(id, binding, receipt) {
     const fresh = await this.store.accept(id, binding, receipt);

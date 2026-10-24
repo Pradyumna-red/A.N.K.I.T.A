@@ -35,6 +35,20 @@ function verifyHelper(binary, sha256) {
     throw new Error('Native helper checksum mismatch');
   return resolved;
 }
+/** Build/startup preflight only: hashing is deliberately kept out of status polling. */
+export function nativeTunnelResourcesReady(artifact) {
+  try {
+    if (!artifact) return false;
+    verifyHelper(artifact.binary, artifact.sha256);
+    verifyHelper(artifact.companionBinary, artifact.companionSha256);
+    for (const filename of artifact.notices ?? []) {
+      if (path.basename(filename) !== filename) return false;
+      const file = path.join(path.dirname(artifact.binary), filename);
+      if (!fs.statSync(file).isFile() || fs.lstatSync(file).isSymbolicLink()) return false;
+    }
+    return true;
+  } catch { return false; }
+}
 
 /** Lifecycle wrapper for the reviewed official helper. It does not implement a tunnel or inherit CoS credentials. */
 export class NativeTunnel {

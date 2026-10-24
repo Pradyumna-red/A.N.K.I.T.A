@@ -6,7 +6,11 @@
   "permissions": [
     "tabs",
     "scripting",
-    "storage"
+    "storage",
+    "alarms"
+  ],
+  "optional_permissions": [
+    "cookies"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",

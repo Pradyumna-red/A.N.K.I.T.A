@@ -1,6 +1,9 @@
 import { GATEWAY_HOST, EPHEMERAL_PORT, REQUEST_ID_PATTERN, LOCAL_HTTP_PROTOCOL, BEARER_PREFIX, JSON_CONTENT_TYPE, BROWSER_BLOCK_REASONS } from '../../src/integrations/chatgpt-browser/protocol.mjs';
 import { MAX_ATTACHMENTS } from '../../desktop/browser-helper/protocol.mjs';
 import { ATTACHMENT_IMAGE_LIMIT } from '../../desktop/shared/attachment-limits.mjs';
+import { APP_RESOURCE_PATTERN } from '../../src/integrations/chatgpt-browser/app-mentions.mjs';
+import { SIGN_IN_COOKIE_PERMISSION } from '../../desktop/chatgpt-companion/sign-in.mjs';
+import { CHATGPT_CHROME_SETUP_MESSAGE } from '../../desktop/shared/chatgpt-browser.mjs';
 
 // One source generates the host/extension wire config and manifest.
 export const COMPANION_VERSION = 1; // Wire schema version; incompatible companions cannot pair.
@@ -11,6 +14,9 @@ export const CHATGPT_MATCH = CHATGPT_ORIGIN + '/*';
 export const LOOPBACK_MATCH = `${LOCAL_HTTP_PROTOCOL}//${GATEWAY_HOST}/*`; // Chrome permissions have no port restriction; runtime accepts only paired address.
 export const BRIDGE_HOST = GATEWAY_HOST;
 export const BRIDGE_PORT = EPHEMERAL_PORT;
+export const BRIDGE_DISCOVERY_PORTS = Object.freeze([39661, 39662, 39663, 39664, 39665]); // Loopback TCP candidates shared by explicit Chrome Connect and its installed companion.
+export const BRIDGE_APP_ID = 'ankita'; // Automatic discovery identifies this product before any provisioning request.
+export const CHATGPT_WINDOW_BOUNDS = Object.freeze({ width: 560, height: 760 }); // CSS pixels: shared compact chat/sign-in window across owned Chromium and external Chrome.
 export const BRIDGE_MAX_BODY_BYTES = 256 * 1024; // Bytes/metadata observation; no arbitrary page text or screenshots.
 export const BRIDGE_SECRET_NAME = 'chatgpt-companion-pairing';
 export const COMPANION_POLL_MS = 2000; // Milliseconds/read-only refresh; serial reads avoid concurrent stale snapshots.
@@ -47,13 +53,21 @@ export const OBSERVATION_MESSAGES = Object.freeze({
   [OBSERVATION_REASONS.ambiguous]: 'Connected · the current model controls are ambiguous. Close extra model menus and Observe again.',
   [OBSERVATION_REASONS.error]: 'Connected · the page reader could not inspect this conversation.',
 }); // Human-readable explanations for safe diagnostic codes; no account/model availability is invented.
-export const ROUTES = Object.freeze({ pair: '/pair', tabs: '/tabs', bind: '/bind', poll: '/poll', observe: '/observe', authorize: '/authorize', receipt: '/receipt', disconnect: '/disconnect', status: '/status' });
+export const ROUTES = Object.freeze({ hello: '/hello', provision: '/provision', signIn: '/sign-in', pair: '/pair', tabs: '/tabs', bind: '/bind', poll: '/poll', observe: '/observe', authorize: '/authorize', receipt: '/receipt', disconnect: '/disconnect', status: '/status' });
 export const SESSION_STORAGE_KEY = 'ankitaCompanionSession'; // Extension memory-only key; no pairing secret written to profile storage.
 export const EXTENSION_ID_PATTERN = /^[a-p]{32}$/; // Chrome's generated extension ID format.
 export const CONVERSATION_PATTERN = /(?:^|\/)c\/([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})(?:\/|$)/i; // Durable ChatGPT conversation route, including projects/custom GPTs.
+export const OPENING_FRAGMENT_KEY = 'ankita-opening'; // Opaque host-owned blank-page marker, never a server conversation ID or pairing credential.
+export function openingFromUrl(value) {
+  try { const url = new URL(value), id = new URLSearchParams(url.hash.slice(1)).get(OPENING_FRAGMENT_KEY);
+    return url.origin === CHATGPT_ORIGIN && url.pathname === '/' && id && id.length <= MAX_ID_CHARS ? id : null;
+  } catch { return null; }
+}
 export const READER_GLOBAL = 'AnkitaPageReaders';
 export const ORIGINS_GLOBAL = 'AnkitaRequestOrigins'; // Passive response identity namespace; no page message authority.
 export const DELIVERY_GLOBAL = 'AnkitaBrowserDelivery'; // One native Send custody per operation; host dispatch remains separate.
+export const APP_MENTIONS_GLOBAL = 'AnkitaAppMentions'; // Passive native app-name discovery and owner-selected tag insertion.
+export const PAGE_ADAPTER_FILES = Object.freeze(['upstream/readers.js', 'upstream/request-origins.js', 'upstream/app-mentions.js', 'upstream/delivery.js']); // Reviewed page code; both owned and external browsers load the same adapters.
 export const MAX_OPERATION_TEXT_CHARS = 240000; // Characters/authored input, matching CoS's bounded delivery contract.
 export const MAX_FINAL_TEXT_CHARS = 64 * 1024; // Characters/public answer, below the observation HTTP byte budget for UTF-8 text.
 export const SEND_READY_MS = 5000; // Milliseconds/native editor/control readiness; shorter than the fresh-page admission window.
@@ -64,11 +78,12 @@ export function conversationFromUrl(value) {
   try { const url = new URL(value); return url.origin === CHATGPT_ORIGIN ? url.pathname.match(CONVERSATION_PATTERN)?.[1] ?? null : null; }
   catch { return null; }
 }
-export const browserWire = Object.freeze({ version: COMPANION_VERSION, pollMs: COMPANION_POLL_MS, chatgptMatch: CHATGPT_MATCH,
+export const browserWire = Object.freeze({ version: COMPANION_VERSION, appId: BRIDGE_APP_ID, discoveryPorts: BRIDGE_DISCOVERY_PORTS, pollMs: COMPANION_POLL_MS, chatgptMatch: CHATGPT_MATCH, chromeSetupMessage: CHATGPT_CHROME_SETUP_MESSAGE,
+  pageAdapterFiles: PAGE_ADAPTER_FILES, openingFragmentKey: OPENING_FRAGMENT_KEY, windowBounds: CHATGPT_WINDOW_BOUNDS, appResourcePattern: APP_RESOURCE_PATTERN.source,
   chatgptOrigin: CHATGPT_ORIGIN, routes: ROUTES, storageKey: SESSION_STORAGE_KEY, maxTabs: MAX_TABS, maxRequests: MAX_REQUEST_IDS,
   maxModels: MAX_MODELS, maxIdChars: MAX_ID_CHARS, conversationPattern: CONVERSATION_PATTERN.source, readerGlobal: READER_GLOBAL,
   originsGlobal: ORIGINS_GLOBAL, observationMaxAgeMs: OBSERVATION_MAX_AGE_MS,
-  deliveryGlobal: DELIVERY_GLOBAL, maxOperationTextChars: MAX_OPERATION_TEXT_CHARS, maxFinalTextChars: MAX_FINAL_TEXT_CHARS,
+  deliveryGlobal: DELIVERY_GLOBAL, appMentionsGlobal: APP_MENTIONS_GLOBAL, maxOperationTextChars: MAX_OPERATION_TEXT_CHARS, maxFinalTextChars: MAX_FINAL_TEXT_CHARS,
   sendReadyMs: SEND_READY_MS, sendReadyPollMs: SEND_READY_POLL_MS,
   uploadReadyMs: UPLOAD_READY_MS, maxAttachments: MAX_ATTACHMENTS, maxAttachmentBytes: ATTACHMENT_IMAGE_LIMIT,
   blockedReasons: BROWSER_BLOCK_REASONS,
@@ -80,5 +95,5 @@ export const browserWire = Object.freeze({ version: COMPANION_VERSION, pollMs: C
   loopbackHost: BRIDGE_HOST, requestIdPattern: REQUEST_ID_PATTERN.source, localProtocol: LOCAL_HTTP_PROTOCOL, bearerPrefix: BEARER_PREFIX, jsonContentType: JSON_CONTENT_TYPE });
 export const companionManifest = Object.freeze({ manifest_version: 3, name: COMPANION_NAME, version: COMPANION_PACKAGE_VERSION,
   description: 'Connect one chosen ChatGPT conversation to ANKITA. Your account models and limits apply.',
-  permissions: ['tabs', 'scripting', 'storage'], host_permissions: [CHATGPT_MATCH, LOOPBACK_MATCH],
+  permissions: ['tabs', 'scripting', 'storage', 'alarms'], optional_permissions: [SIGN_IN_COOKIE_PERMISSION], host_permissions: [CHATGPT_MATCH, LOOPBACK_MATCH],
   background: { service_worker: 'background.mjs', type: 'module' }, action: { default_popup: 'popup.html' } });

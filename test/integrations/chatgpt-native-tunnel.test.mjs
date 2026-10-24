@@ -25,6 +25,18 @@ function fixture(t, options = {}) {
   return { tunnel, child, events, companionBinary, spawn: () => spawned };
 }
 
+test('development resource preflight accepts complete pinned files and rejects missing or modified helpers', async t => {
+  const api = await import('../../src/integrations/chatgpt-browser/native-tunnel.mjs');
+  assert.equal(typeof api.nativeTunnelResourcesReady, 'function');
+  const { tunnel, companionBinary } = fixture(t);
+  assert.equal(api.nativeTunnelResourcesReady(tunnel), true);
+  fs.writeFileSync(companionBinary, 'changed bytes');
+  assert.equal(api.nativeTunnelResourcesReady(tunnel), false);
+  fs.unlinkSync(companionBinary);
+  assert.equal(api.nativeTunnelResourcesReady(tunnel), false);
+  assert.equal(api.nativeTunnelResourcesReady(null), false);
+});
+
 test('native helper starts only after checksum validation with private credentials in its limited child environment', async t => {
   const { tunnel, spawn, child, events } = fixture(t);
   await tunnel.start({ apiKey: 'fixture-private-key' });

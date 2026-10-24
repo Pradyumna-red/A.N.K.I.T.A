@@ -1152,7 +1152,7 @@ export class DesktopEngine {
       await this.secretHistory.prepare(prompt);
       const input = { threadId: id, signal: controller.signal, onProgress: publish };
       const result = resumeOperationId ? await this.chatgptBrowser.resume({ ...input, operationId: resumeOperationId })
-        : await this.chatgptBrowser.send({ ...input, text: prompt, attachments: uploads, surface, context,
+        : await this.chatgptBrowser.send({ ...input, text: prompt, attachments: uploads, surface, context, includeTools: this.config.tools !== false,
           onQueued: operation => { user.browserOperationId = operation.id; persist(); } });
       if (result?.outcome !== 'completed') throw new Error('The browser reply is not confirmed as complete');
       const reply = this.secretHistory.clean(result.text);

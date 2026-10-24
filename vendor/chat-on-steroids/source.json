@@ -3,6 +3,34 @@
   "commit": "34f4b73cc242b63acd4be5ba4e4fb74a5cdb99e5",
   "license": "MIT",
   "packageVersion": "2.1.34",
+  "additionalImports": [
+    {
+      "commit": "a9c02cc8339ed550862e57e33c54169b9ceedce3",
+      "packageVersion": "2.1.45",
+      "adaptations": ["shared editorText presentation filtering", "structured appSightingsOf metadata", "served-request connector identity", "owned Electron session lifecycle", "automatic external discovery/provisioning", "MV3 alarm wake after worker suspension", "one-pass native Markdown read-back for app-owned Send receipts"],
+      "files": [
+        { "file": "extension/chatgpt-dom.js", "sha256": "41f37677bc5182a9f299d4353bc83abd65feca025e52102682d772426bc78ce2", "functions": ["editorText", "NOT_PROMPT"] },
+        { "file": "extension/content.js", "sha256": "e9a3d454ce413ac8530b02ebbb6f4d356c830f8f2a05cd598fe160cf90d56df8", "functions": ["unescapeMarkdown", "matchesSubmittedBootstrap"] },
+        { "file": "extension/usage.js", "sha256": "3a5adfae384c269f2fb6331a75fd38c3c8ab4ec373a4188eb4b7879bfe581495", "functions": ["appSightingsOf"] },
+        { "file": "src/main/connector-identity.ts", "sha256": "948fe3898bdeb4dacf484c6163f1c2084250e781744557e3c9f36a9745055013", "functions": ["noteServedRequest", "noteAppSightings"] },
+        { "file": "src/main/cos-browser/host.ts", "sha256": "b341be27bfd566a9c6cf2eeff08b2e1bb0d08fe1a3a0b04092daecb18f17237b", "functions": ["boot", "open", "show", "debuggerAttach"] },
+        { "file": "src/main/cos-browser/sign-in-transfer.ts", "sha256": "c593cd2c1901ef60af9fe07af13aaa487cc62a6a3db8e30e3e4dfba831ec5454", "functions": ["signInCookies", "SignInTransfer"] },
+        { "file": "src/main/cos-browser/sign-in.ts", "sha256": "d0a68644bd160781680769f8eb65f2a73836b4680362cf300b66670e08a42ed3", "functions": ["CHATGPT_SESSION_COOKIE"] },
+        { "file": "extension/popup.js", "sha256": "1428c7ea9913e41f3287730da0faae048971906e85d82ec2bcdd4f50778083b9", "functions": ["signInTransferBtn click permission request"] },
+        { "file": "extension/background.js", "sha256": "72b699c148c988ee068acd9711b1153d409573d58bcaa877d2c522a15cde8598", "functions": ["hello", "discover", "provision", "retryWanted", "scheduleRetry"] }
+      ]
+    },
+    {
+      "commit": "532cbeffced7e24a3d8b960cbf93941687f04b19",
+      "packageVersion": "2.1.45",
+      "destination": "desktop/chatgpt-companion/upstream/app-mentions.js",
+      "files": [
+        { "file": "extension/chatgpt-dom.js", "sha256": "131eea7d3237b4f252b165b277db402eb0f4bfdc10dc05f2ab3c071a4deeb785", "functions": ["addAppMention"] },
+        { "file": "extension/usage.js", "sha256": "3a5adfae384c269f2fb6331a75fd38c3c8ab4ec373a4188eb4b7879bfe581495", "functions": ["inspectSystemHints", "installFetchObserver", "refresh"] },
+        { "file": "extension/fiber.js", "sha256": "23f9bdc11ab92e6ef71a6e9254c53ee5a01829890513c532b0032c46f0de3008", "functions": ["withoutAppMentions"] }
+      ]
+    }
+  ],
   "files": [
     {
       "file": "extension/chatgpt-dom.js",

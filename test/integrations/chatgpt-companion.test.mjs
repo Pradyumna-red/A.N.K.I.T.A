@@ -29,6 +29,87 @@ async function paired(extraConfig = {}, delivery) {
   return bridge;
 }
 
+test('a stream notice pauses native actions while its first exact receipt and later final remain observable without restart', async t => {
+  const store = new BrowserOperationStore({ directory: path.join(workspace, crypto.randomUUID()) }), delivery = new BrowserDelivery({ store });
+  const bridge = await paired({ modelMode: 'current' }, delivery); t.after(() => bridge.close());
+  const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+  const observe = async values => { const poll=await bridge.poll(); return bridge.observe({binding,nonce:poll.nonce,snapshot:{...snapshot,conversationId,...values}}); };
+  await observe({});
+  let helpers=0,queued;const ready=new Promise(resolve=>{queued=resolve;});
+  const runtime = new ChatGptRuntime({ bridge, delivery, store, onReadyBinding:async()=>{helpers++;} });
+  delivery.onEvent=event=>runtime.deliveryEvent(event);
+  const sending=runtime.send({threadId:config.threadId,text:'first response across a stream notice',onQueued:queued});void sending.catch(()=>{});
+  const operation=await ready;await bridge.poll();await delivery.authorize(operation.id,binding,{baselineUserIds:[]});
+  const receipt={conversationId,userMessageId:crypto.randomUUID(),turnId:crypto.randomUUID()};
+  await observe({blockedReason:'transport',delivery:{operationId:operation.id,receipt}});
+  assert.deepEqual((await store.get(operation.id)).receipt,receipt,'a stream notice must not discard the accepted native question');
+  assert.equal(runtime.pending.size,1,'keep observing this same reply instead of rejecting its caller');
+  assert.equal(bridge.view().status,'blocked');
+  assert.equal((await bridge.authorize({binding,operationId:operation.id,witness:{baselineUserIds:[]}})).allowed,false);
+  await assert.rejects(bridge.resolveRequestOwner({leaseId:binding.leaseId,requestId:'native-owned'}),/unavailable/i);
+  await observe({delivery:{operationId:operation.id,receipt,answer:{...receipt,assistantMessageId:crypto.randomUUID(),role:'assistant',channel:'final',end_turn:true,status:'finished_successfully',text:'first answer without restarting'}}});
+  assert.equal((await sending).text,'first answer without restarting');
+  assert.equal(helpers,1,'observation never reopens native action transports');
+  assert.equal((await store.list(binding)).length,1,'no replacement question was queued');
+});
+
+test('a stream notice before dispatch reports the unsent message instead of waiting forever for a reply',async t=>{
+  const store=new BrowserOperationStore({directory:path.join(workspace,crypto.randomUUID())}),delivery=new BrowserDelivery({store});
+  const bridge=await paired({modelMode:'current'},delivery);t.after(()=>bridge.close());
+  const binding=await bridge.bind({browserId,tabId:1,conversationId,...config});
+  const initial=await bridge.poll();await bridge.observe({binding,nonce:initial.nonce,snapshot:{...snapshot,conversationId}});
+  const runtime=new ChatGptRuntime({bridge,store,delivery});delivery.onEvent=event=>runtime.deliveryEvent(event);
+  let queued,message;const ready=new Promise(resolve=>{queued=resolve;});
+  const sending=runtime.send({threadId:config.threadId,text:'not sent before the connection warning',onQueued:queued});void sending.catch(error=>{message=error.message;});
+  await ready;await delivery.block(binding,'transport');await new Promise(resolve=>setImmediate(resolve));
+  try{assert.match(message??'',/before.*sent/i);assert.equal(runtime.pending.size,0);}finally{await runtime.cancel(binding.threadId);await sending.catch(()=>{});}
+  assert.equal((await store.list(binding))[0].dispatchedAt,undefined);
+});
+
+test('explicit native Stop remains available during a transport pause while Send stays refused',async t=>{
+  const store=new BrowserOperationStore({directory:path.join(workspace,crypto.randomUUID())}),delivery=new BrowserDelivery({store});
+  const bridge=await paired({modelMode:'current'},delivery);t.after(()=>bridge.close());
+  const binding=await bridge.bind({browserId,tabId:1,conversationId,...config});
+  let poll=await bridge.poll();await bridge.observe({binding,nonce:poll.nonce,snapshot:{...snapshot,conversationId}});
+  const operation=await bridge.enqueue({id:crypto.randomUUID(),binding,kind:'send',text:'stop the same paused generation'});
+  await bridge.poll();await bridge.authorize({binding,operationId:operation.id,witness:{baselineUserIds:[]}});
+  const receipt={conversationId,userMessageId:crypto.randomUUID(),turnId:crypto.randomUUID()};
+  poll=await bridge.poll();await bridge.observe({binding,nonce:poll.nonce,snapshot:{...snapshot,conversationId,blockedReason:'transport',delivery:{operationId:operation.id,receipt}}});
+  await delivery.stop(binding);const stop=await store.stopCommand(binding);
+  assert.equal((await bridge.authorize({kind:'stop',binding,operationId:stop.id,witness:{...receipt,userMessageId:crypto.randomUUID()}})).allowed,false,'a transport warning never weakens the exact Stop receipt');
+  poll=await bridge.poll();await bridge.observe({binding,nonce:poll.nonce,snapshot:{...snapshot,conversationId,blockedReason:'quota'}});
+  assert.equal((await bridge.authorize({kind:'stop',binding,operationId:stop.id,witness:receipt})).allowed,false,'other provider blocks retain their existing authorization boundary');
+  poll=await bridge.poll();await bridge.observe({binding,nonce:poll.nonce,snapshot:{...snapshot,conversationId,blockedReason:'transport'}});
+  assert.equal((await bridge.authorize({kind:'stop',binding,operationId:stop.id,witness:receipt})).allowed,true,'Stop must not wait for the stream warning to disappear');
+  assert.equal((await bridge.authorize({kind:'stop',binding,operationId:stop.id,witness:receipt})).allowed,false,'the same Stop cannot click twice');
+  assert.equal((await bridge.authorize({binding,operationId:operation.id,witness:{baselineUserIds:[]}})).allowed,false);
+  await bridge.acknowledge({kind:'stop',binding,operationId:stop.id,receipt,confirmed:true});
+  assert.equal((await store.stopCommand(binding)).phase,'confirmed');
+});
+
+test('an old companion cannot queue an app-tagged message or type it before a compatible observation', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-old-companion-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const store = new BrowserOperationStore({ directory }), delivery = new BrowserDelivery({ store });
+  const bridge = await paired({}, delivery); t.after(() => bridge.close());
+  const binding = await bridge.bind({ browserId, tabId: 1, conversationId, ...config });
+  const observe = async nativeAppTagsReady => {
+    const poll = await bridge.poll();
+    await bridge.observe({ binding, nonce: poll.nonce, snapshot: { ...snapshot, conversationId, ...(nativeAppTagsReady === undefined ? {} : { nativeAppTagsReady }) } });
+  };
+  await observe(); // An earlier companion reports readiness but has no native app-tag capability.
+  const input = { id: crypto.randomUUID(), binding, kind: 'send', text: 'do not leave this unsent in the browser', appNames: ['ANKITA Core'] };
+  await assert.rejects(bridge.enqueue(input), /companion/i);
+  let helpersStarted = 0;
+  const runtime = new ChatGptRuntime({ bridge, delivery, store, onReadyBinding: async () => { helpersStarted++; } });
+  await assert.rejects(runtime.send({ threadId: binding.threadId, text: input.text, appNames: input.appNames }), /companion/i);
+  assert.equal(helpersStarted, 0, 'compatibility is checked before reopening native action transports');
+  assert.equal((await store.list(binding)).length, 0);
+  await observe(true);
+  await bridge.enqueue(input);
+  assert.deepEqual((await bridge.poll()).operation.appNames, ['ANKITA Core']);
+});
+
 test('two identical tab titles bind only the explicitly selected existing conversation', async () => {
   const bridge = await paired();
   try {
@@ -400,7 +481,7 @@ test('the bound page receives only opaque ownership scope, never host workspace 
   let injected;
   const chromeApi = { tabs: { get: async () => ({ url: `https://chatgpt.com/c/${conversationId}` }) }, scripting: { executeScript: async request => {
     if (request.func) { injected = request.args; return [{ result: { conversationId } }]; }
-    assert.deepEqual(request.files, ['upstream/readers.js', 'upstream/request-origins.js', 'upstream/delivery.js']); return [];
+    assert.deepEqual(request.files, ['upstream/readers.js', 'upstream/request-origins.js', 'upstream/app-mentions.js', 'upstream/delivery.js']); return [];
   } } };
   await observeBoundTab(chromeApi, binding);
   assert.deepEqual(injected[2], { leaseId: binding.leaseId, epoch: binding.epoch, tabId: binding.tabId, conversationId });
@@ -408,13 +489,35 @@ test('the bound page receives only opaque ownership scope, never host workspace 
   assert.equal(JSON.stringify(injected).includes(binding.threadId), false);
 });
 
+test('app catalogue preloading is registered only for the explicitly selected conversation', async () => {
+  const binding = { leaseId: 'app-observer-lease', epoch: 'app-observer-epoch', tabId: 7, conversationId };
+  const registered = [], removed = [];
+  const chromeApi = { tabs: { get: async () => ({ url: `https://chatgpt.com/c/${conversationId}` }) }, scripting: {
+    getRegisteredContentScripts: async () => [],
+    unregisterContentScripts: async input => removed.push(input),
+    registerContentScripts: async input => registered.push(...input),
+    executeScript: async request => request.func ? [{ result: { conversationId } }] : [],
+  } };
+  await observeBoundTab(chromeApi, binding);
+  await observeBoundTab(chromeApi, binding);
+  assert.equal(registered.length, 1, 'polling must not accumulate document-start observers');
+  assert.deepEqual(registered[0].matches, [`https://chatgpt.com/c/${conversationId}*`]);
+  assert.deepEqual(registered[0].js, ['upstream/app-mentions.js']);
+  assert.equal(registered[0].runAt, 'document_start');
+  assert.equal(registered[0].persistAcrossSessions, false);
+  assert.equal(removed.length, 0);
+});
+
 test('repeating Connect with the same pairing URL preserves the paired browser and conversation', async () => {
   const bridge = await createCompanionBridge({ config, secrets });
   const originalChrome = globalThis.chrome;
-  const storage = {}; let listener;
+  const storage = {}, identity = {}; let listener;
   const runtime = { id: extensionId, getURL: file => `chrome-extension://${extensionId}/${file}`,
     onMessage: { addListener: callback => { listener = callback; } } };
-  globalThis.chrome = { runtime, storage: { session: {
+  globalThis.chrome = { runtime, storage: { local: {
+    get: async key => ({ [key]: identity[key] }),
+    set: async values => { Object.assign(identity, values); },
+  }, session: {
     get: async key => ({ [key]: storage[key] }),
     set: async values => { Object.assign(storage, values); },
     remove: async key => { delete storage[key]; },

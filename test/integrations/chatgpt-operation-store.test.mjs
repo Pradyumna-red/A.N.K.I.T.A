@@ -34,6 +34,19 @@ test('same queued identity is idempotent and changed payload or host binding is 
   assert.equal((await store.get(input.id)).outcome, 'queued');
 });
 
+test('app names are immutable and dispatch requires the matching native app witness', async t => {
+  const { store } = fixture(t); const input = { ...operation(), appNames: ['ANKITA Core'] };
+  await store.queue(input);
+  await assert.rejects(store.queue({ ...input, appNames: ['Different app'] }), /changed|identity/i);
+  await store.claim(input.id, binding);
+  await assert.rejects(store.dispatch(input.id, binding), /app|mention/i);
+  await assert.rejects(store.dispatch(input.id, binding, { baselineUserIds: [], appMentions: [{ name: 'Different app', path: 'app://asdk_app_wrong' }] }), /app|mention/i);
+  assert.equal((await store.get(input.id)).outcome, 'claimed');
+  const appMentions = [{ name: 'ANKITA Core', path: 'app://asdk_app_core_fixture' }];
+  await store.dispatch(input.id, binding, { baselineUserIds: [], appMentions });
+  assert.deepEqual((await store.get(input.id)).appMentions, appMentions);
+});
+
 test('concurrent store instances can claim one operation only once', async t => {
   const { directory, store } = fixture(t); const input = operation();
   await store.queue(input);

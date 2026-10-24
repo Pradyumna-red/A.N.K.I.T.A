@@ -3,7 +3,7 @@
  */
 var AnkitaRequestOrigins = (() => {
   'use strict';
-  const VERSION = 1; // Observer implementation version; reinjection must not stack wrappers/readers.
+  const VERSION = 2; // Observer revision; a first-turn opening holds metadata until its real conversation is confirmed.
   const prior = globalThis.AnkitaRequestOrigins;
   if (prior?.version === VERSION && prior.refresh?.() === true) return prior;
   prior?.dispose?.();
@@ -31,15 +31,17 @@ var AnkitaRequestOrigins = (() => {
   const DELTA = 'delta'; const ENCODING = 'delta_encoding'; const V1 = 'v1';
   const ADD = 'add'; const REPLACE = 'replace';
   const OPERATIONS = [ADD, REPLACE, 'append', 'patch', 'remove', 'truncate']; // Native delta enum vocabulary.
-  const BINDING_FIELDS = ['leaseId', 'epoch', 'tabId', 'conversationId']; // Only opaque scope; no workspace/thread context retained in the page.
+  const BINDING_FIELDS = ['leaseId', 'epoch', 'tabId', 'conversationId', 'openingId']; // Only opaque scope; no workspace/thread context retained in the page.
   const opaque = value => typeof value === 'string' && value.length > 0 && value.length <= OPAQUE_CHARS;
-  const same = (a, b) => Boolean(a && b && BINDING_FIELDS.every(key => a[key] === b[key]));
-  const origins = new Map(), readers = new Map(), sockets = new Map(), inspected = new WeakSet();
+  const same = (a, b) => Boolean(a && b && a.openingId === b.openingId && BINDING_FIELDS.every(key => key === 'conversationId' && a.openingId && (a[key] === null || b[key] === null) ? true : a[key] === b[key]));
+  const origins = new Map(), sightings = new Map(), pendingOrigins = [], readers = new Map(), sockets = new Map(), inspected = new WeakSet();
   let active = true, owner = null, config = null, refreshedAt = null, fetchWrapper = null, socketWrapper = null;
   let downstreamFetch = null, downstreamSocket = null;
   function routeMatches() {
-    return config && location.origin === config.chatgptOrigin &&
-      location.pathname.match(new RegExp(config.conversationPattern, 'i'))?.[1] === owner?.conversationId;
+    return config && location.origin === config.chatgptOrigin && (owner?.conversationId ?
+      location.pathname.match(new RegExp(config.conversationPattern, 'i'))?.[1] === owner.conversationId : owner?.openingId &&
+      ((location.pathname === '/' && new URLSearchParams(location.hash.slice(1)).get(config.openingFragmentKey) === owner.openingId) ||
+        globalThis[config.deliveryGlobal]?.openingActive?.(owner, config) === true));
   }
   function current(captured) {
     const age = Date.now() - refreshedAt;
@@ -49,14 +51,24 @@ var AnkitaRequestOrigins = (() => {
     for (const [reader, timer] of readers) { clearTimeout(timer); void reader.cancel().catch(() => {}); }
     readers.clear();
     origins.clear();
+    sightings.clear(); pendingOrigins.length = 0;
     for (const record of sockets.values()) record.streams.clear();
   }
   function publish(origin, captured) {
-    if (!current(captured) || origin?.conversationId !== captured.conversationId) return;
+    if (!current(captured) || !origin) return;
+    if (owner.conversationId === null && owner.openingId) {
+      if (pendingOrigins.length < MAX_ORIGINS) pendingOrigins.push(origin);
+      return; // No request ownership until the native question establishes the server's real chat ID.
+    }
+    if (origin.conversationId !== owner.conversationId) return;
     for (const id of origin.requestIds) {
       if (origins.has(id)) continue;
       if (origins.size >= MAX_ORIGINS) origins.delete(origins.keys().next().value);
       origins.set(id, true);
+    }
+    for (const item of origin.appSightings ?? []) {
+      const key = JSON.stringify([item.requestId, item.appId, item.toolName]);
+      if (sightings.size < MAX_ORIGINS || sightings.has(key)) sightings.set(key, item);
     }
   }
   function readOrigin(frame, stream) {
@@ -96,7 +108,11 @@ var AnkitaRequestOrigins = (() => {
     if (!stream.conversationId) return;
     const requestIds = [...new Set([body?.metadata?.request_id, body?.message?.metadata?.request_id,
       body?.input_message?.metadata?.request_id].filter(id => typeof id === 'string' && REQUEST.test(id)))];
-    return requestIds.length ? { conversationId: stream.conversationId, requestIds } : null;
+    const message = body?.message, metadata = message?.metadata, resource = metadata?.invoked_resource;
+    const app = message?.author?.role === 'tool' && message.author.name === 'api_tool.call_tool' && typeof resource?.resource_uri === 'string' && config.appResourcePattern ? new RegExp(config.appResourcePattern).exec(resource.resource_uri) : null;
+    const appSightings = app && REQUEST.test(metadata?.request_id ?? '') && typeof resource.app_name === 'string' && resource.app_name.length <= OPAQUE_CHARS ?
+      [{ requestId: metadata.request_id, appId: app[1], appName: resource.app_name, toolName: app[3] }] : [];
+    return requestIds.length ? { conversationId: stream.conversationId, requestIds, appSightings } : null;
   }
   async function inspectResponse(response, captured) {
     if (!current(captured)) return;
@@ -115,7 +131,7 @@ var AnkitaRequestOrigins = (() => {
       if (!origin) return;
       const fresh = origin.requestIds.filter(id => !emitted.has(id)).slice(0, MAX_STREAM_IDS - emitted.size);
       for (const id of fresh) emitted.add(id);
-      publish({ conversationId: origin.conversationId, requestIds: fresh }, captured);
+      publish({ ...origin, requestIds: fresh }, captured);
     };
     try {
       while (current(captured)) {
@@ -211,16 +227,23 @@ var AnkitaRequestOrigins = (() => {
     return true;
   }
   function bind(binding, wire) {
-    if (!active || !opaque(binding?.leaseId) || !opaque(binding?.epoch) || !Number.isSafeInteger(binding?.tabId) || !CONVERSATION.test(binding?.conversationId ?? '')) return false;
-    if (!same(owner, binding)) { reset(); owner = Object.fromEntries(BINDING_FIELDS.map(key => [key, binding[key]])); }
+    if (!active || !opaque(binding?.leaseId) || !opaque(binding?.epoch) || !Number.isSafeInteger(binding?.tabId) ||
+        !(CONVERSATION.test(binding?.conversationId ?? '') || (binding?.conversationId === null && opaque(binding?.openingId)))) return false;
+    if (!same(owner, binding)) reset();
+    owner = Object.fromEntries(BINDING_FIELDS.map(key => [key, binding[key]]));
     config = wire; refreshedAt = Date.now();
     if (!routeMatches()) { reset(); owner = null; return false; }
+    if (owner.conversationId && pendingOrigins.length) {
+      const held = pendingOrigins.splice(0);
+      for (const origin of held) publish(origin, owner);
+    }
     return refresh();
   }
   const hide = () => { reset(); owner = null; };
   globalThis.addEventListener?.('pagehide', hide);
   return { version: VERSION, bind, refresh,
     requestIds(binding) { if (!current(binding)) { reset(); return []; } return [...origins.keys()]; },
+    appSightings(binding) { if (!current(binding)) { reset(); return []; } return [...sightings.values()]; },
     dispose() {
       active = false; reset(); owner = null;
       for (const socket of [...sockets.keys()]) removeSocket(socket);

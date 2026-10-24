@@ -25,6 +25,24 @@ async function fixture(t) {
   return { store, delivery, operation };
 }
 
+test('explicit Read reply observes through a transport notice without reopening tools, while other blocks still refuse', async t => {
+  const {store,delivery,operation}=await fixture(t);
+  await store.claim(operation.id,binding);await store.dispatch(operation.id,binding,{baselineUserIds:[]});await delivery.receipt(operation.id,binding,receipt);
+  await delivery.block(binding,'transport');
+  let reason='quota',helpers=0;
+  const runtime=new ChatGptRuntime({store,delivery,bridge:{view:()=>({status:'blocked',blockedReason:reason,binding,models:[]})},onReadyBinding:async()=>{helpers++;}});
+  delivery.onEvent=event=>runtime.deliveryEvent(event);
+  await assert.rejects(runtime.resume({threadId:binding.threadId,operationId:operation.id}),/connect/i);
+  reason='transport';
+  const resumed=runtime.resume({threadId:binding.threadId,operationId:operation.id});void resumed.catch(()=>{});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(runtime.pending.size,1);
+  await delivery.receipt(operation.id,binding,receipt);
+  await delivery.observe(operation.id,binding,{...receipt,assistantMessageId:crypto.randomUUID(),role:'assistant',channel:'final',end_turn:true,status:'finished_successfully',text:'read the same completed answer'});
+  assert.equal((await resumed).text,'read the same completed answer');
+  assert.equal(helpers,0);assert.equal((await store.list(binding)).length,1);
+});
+
 test('Stop before Send durably fences the epoch and grants no remote control over a human generation', async t => {
   const { store, delivery, operation } = await fixture(t);
   await delivery.stop(binding);

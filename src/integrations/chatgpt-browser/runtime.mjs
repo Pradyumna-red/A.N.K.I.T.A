@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as pause } from 'node:timers/promises';
-import { CHATGPT_BROWSER_PROVIDER } from './protocol.mjs';
+import { CHATGPT_BROWSER_PROVIDER, BROWSER_TRANSPORT_NOTICE } from './protocol.mjs';
 import { sameOperationBinding, STOP_PHASES, OPERATION_OUTCOMES } from './operation-store.mjs';
 import { BRIDGE_READY_STATUS, OBSERVATION_MAX_AGE_MS, SEND_READY_POLL_MS } from '../../../services/chatgpt-bridge/config.mjs';
-import { CHATGPT_SETUP_MESSAGE } from '../../../desktop/shared/chatgpt-browser.mjs';
+import { CHATGPT_SETUP_MESSAGE, CHATGPT_COMPANION_UPDATE_MESSAGE } from '../../../desktop/shared/chatgpt-browser.mjs';
 import { validateBrowserUploads } from './attachments.mjs';
+import { validateMentionNames, APP_MENTION_ERRORS } from './app-mentions.mjs';
 
 /** Browser conversation only: no API client or competing Agent loop. */
 export class ChatGptRuntime {
@@ -36,11 +37,13 @@ export class ChatGptRuntime {
       [OPERATION_OUTCOMES.accepted, OPERATION_OUTCOMES.dispatched, OPERATION_OUTCOMES.uncertain, OPERATION_OUTCOMES.completed].includes(row.outcome))
       .map(row => ({ id: row.id, outcome: row.outcome }));
   }
-  async send({ threadId, text, attachments = [], signal, onProgress, onQueued } = {}) {
+  async send({ threadId, text, attachments = [], appNames = [], signal, onProgress, onQueued } = {}) {
     let view = this.view(), binding = view.binding;
     if (this.closed || view.status !== BRIDGE_READY_STATUS || !binding) throw new Error(CHATGPT_SETUP_MESSAGE);
     if (binding.threadId !== threadId) throw new Error('This browser conversation belongs to another teammate. Choose it in ChatGPT connection settings.');
     const uploads = validateBrowserUploads(attachments);
+    const names = validateMentionNames(appNames);
+    if (names.length && view.nativeAppTagsReady !== true) throw new Error(CHATGPT_COMPANION_UPDATE_MESSAGE);
     if (signal?.aborted) throw signal.reason ?? new Error('Browser reply cancelled');
     if (this.pending.size || this.preparing) throw new Error('The selected ChatGPT conversation is already replying');
     this.preparing = true;
@@ -73,7 +76,7 @@ export class ChatGptRuntime {
     const abort = () => { void this.cancel(threadId).catch(error => reject(error)); };
     signal?.addEventListener('abort', abort, { once: true });
     try {
-      const input = { id, binding, kind: 'send', text: this.history(String(text ?? '')), ...(uploads.length ? { attachments: uploads } : {}) };
+      const input = { id, binding, kind: 'send', text: this.history(String(text ?? '')), ...(uploads.length ? { attachments: uploads } : {}), ...(names.length ? { appNames: names } : {}) };
       const operation = await (this.bridge.enqueue ? this.bridge.enqueue(input) : this.delivery.enqueue(input));
       await onQueued?.(operation);
       if (signal?.aborted) await this.cancel(threadId);
@@ -83,7 +86,8 @@ export class ChatGptRuntime {
   }
   async resume({ threadId, operationId, signal, onProgress } = {}) {
     const view = this.view(), binding = view.binding, operation = await this.store.get(operationId);
-    if (this.closed || view.status !== BRIDGE_READY_STATUS || !binding || binding.threadId !== threadId || !sameOperationBinding(operation?.binding, binding)) throw new Error(CHATGPT_SETUP_MESSAGE);
+    const readable = view.status === BRIDGE_READY_STATUS || (view.status === 'blocked' && view.blockedReason === BROWSER_TRANSPORT_NOTICE);
+    if (this.closed || !readable || !binding || binding.threadId !== threadId || !sameOperationBinding(operation?.binding, binding)) throw new Error(CHATGPT_SETUP_MESSAGE);
     if (this.pending.size || this.preparing) throw new Error('The selected ChatGPT conversation is already replying');
     if (signal?.aborted) throw new Error('Browser reply cancelled');
     if (operation.outcome === OPERATION_OUTCOMES.completed) return { outcome: 'completed', operationId, text: this.history(operation.completion.text) };
@@ -114,10 +118,15 @@ export class ChatGptRuntime {
     if (owner && sameOperationBinding(owner.binding, event.binding)) {
       if (event.type === 'progress') owner.onProgress?.({ ...event.progress, text: this.history(event.progress.text) });
       if (event.type === 'completed') owner.resolve({ outcome: 'completed', text: this.history(event.completion.text), operationId: event.operationId });
-      if (event.type === 'blocked') owner.reject(new Error(`ChatGPT reported ${event.reason}. Resolve it in the selected chat before explicitly resuming. No fallback or automatic retry was started.`));
-      if (event.type === 'rejected' || event.type === 'uncertain') owner.reject(new Error(event.type === 'uncertain'
+      if (event.type === 'blocked') {
+        const sent = event.reason === BROWSER_TRANSPORT_NOTICE && Boolean((await this.store.get(event.operationId))?.dispatchedAt);
+        if (!sent) owner.reject(new Error(event.reason === BROWSER_TRANSPORT_NOTICE
+          ? 'ChatGPT disconnected before your message was sent. Open ChatGPT, then send your message again.'
+          : `ChatGPT reported ${event.reason}. Resolve it in the selected chat before explicitly resuming. No fallback or automatic retry was started.`));
+      }
+      if (event.type === 'rejected' || event.type === 'uncertain') owner.reject(new Error(APP_MENTION_ERRORS[event.reason] ?? (event.type === 'uncertain'
         ? 'ChatGPT delivery could not be confirmed. The message may have been sent and will not be sent again.'
-        : 'ChatGPT did not accept this message. Check its editor and connection before trying again.'));
+        : 'ChatGPT did not accept this message. Check its editor and connection before trying again.')));
     }
     if (event.type !== 'progress') await this.refreshRecoverable(); // Includes observation-only finals after the active caller has already ended.
     this.onEvent(event);

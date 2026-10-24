@@ -54,10 +54,11 @@ function fromChannels(view: ChannelsView): ChannelDraft {
     teammateId: tg.teammateId || '', voiceReply: tg.voiceReply, confirmTimeout: String(tg.confirmTimeout || 300) };
 }
 
-export function SettingsDialog({ tab, onTab, onClose, preferences, models, teammates, jobs, version, onSaved, onOpenJobs }: {
+export function SettingsDialog({ tab, onTab, onClose, preferences, models, teammates, jobs, version, onSaved, onOpenJobs, selectedThreadId }: {
   tab: SettingsTab; onTab: (tab: SettingsTab) => void; onClose: () => void;
   preferences: DesktopPreferences; models: Model[]; teammates: Teammate[]; version: string; onSaved: (result: DesktopSettingsResult) => void;
   jobs: Routine[]; onOpenJobs: (job?: Routine) => void;
+  selectedThreadId?: string | null;
 }) {
   const [draft, setDraft] = useState(() => fromPreferences(preferences));
   const [removed, setRemoved] = useState<Secret[]>([]);
@@ -277,7 +278,7 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
                 <div className="settings-provider-actions"><button type="button" className="settings-secondary" onClick={test} disabled={testing || !draft.customApiBase.trim()}>{testing ? 'Testing…' : 'Test connection'}</button><span role="status" className={testResult?.tone === 'error' ? 'settings-test-error' : 'settings-test-ok'}>{testResult?.text || 'Checks the endpoint and available models.'}</span></div>
               </>}
             </div>}
-            {draft.provider === CHATGPT_BROWSER_PROVIDER && <ChatGptConnection teammates={teammates} enabled={preferences.provider === CHATGPT_BROWSER_PROVIDER} />}
+            {draft.provider === CHATGPT_BROWSER_PROVIDER && <ChatGptConnection teammates={teammates} initialThreadId={selectedThreadId} enabled={preferences.provider === CHATGPT_BROWSER_PROVIDER} />}
             <h2 className="settings-section-title">Connected apps</h2>
             <div className="settings-panel"><h2>Composio</h2><p>Connect Gmail, Slack, Notion and other app tools with your Composio project key.</p>{secretField('composioApiKey', 'Project key', 'Enter your Composio key')}</div>
             <div className="settings-provider-actions"><button type="button" className="settings-primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save provider settings'}</button><span>Keys are saved on this device and never shown again.</span></div>

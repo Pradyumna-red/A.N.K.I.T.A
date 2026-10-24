@@ -12,6 +12,8 @@ import { JobApprovalCard } from './JobCard';
 import { CompanionStatus } from './CompanionStatus';
 import { TeammateAvatar } from './TeammateAvatar';
 import { COMPOSE_EVENT } from '../../../shared/desktop-layout.mjs';
+import { CHATGPT_BROWSER_PROVIDER, chatgptHasPendingReply } from '../../../shared/chatgpt-browser.mjs';
+import { useChatGptConnection } from './useChatGptConnection';
 
 const STARTERS = [
   { icon: 'check', label: 'Plan the next step', text: 'Help me plan the next step for what I’m working on.' },
@@ -29,6 +31,7 @@ export function ChatPane({ teammate, messages, running, models, projects, defaul
   onSend: (text: string, attachments?: { name: string; data: string; kind?: 'document'; images?: string[] }[]) => void; onStop: () => void; onModel: (id: string) => void;
   onEdit: () => void; onCreate: () => void; onClear: () => void; onDelete: () => void;
 }) {
+  const chatgpt = useChatGptConnection(provider === CHATGPT_BROWSER_PROVIDER);
   const [menu, setMenu] = useState(false);
   const [projectMenu, setProjectMenu] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
@@ -76,12 +79,14 @@ export function ChatPane({ teammate, messages, running, models, projects, defaul
   const tokens = usage ? usage.prompt_tokens + usage.completion_tokens : 0;
   const assignedProject = projects.find(project => project.id === teammate.projectId);
   const instructions = loadedSkills?.length ? `Instructions loaded: ${loadedSkills.join(', ')}` : null; // Display actual request inclusion supplied by the engine; absent receipts retain the persona subtitle.
+  const needsReplyCheck = provider === CHATGPT_BROWSER_PROVIDER && (chatgptHasPendingReply(chatgpt) || Boolean(chatgpt?.blockedReason));
+  const statusLabel = running ? 'Working' : needsReplyCheck ? 'Check reply' : 'Ready';
 
   return <main className="chat-pane">
     <header className="chat-header drag-region">
       <div className="header-left no-drag">
         {!sidebarOpen && <>{chrome === 'custom' && <WindowControls />}<button className="icon-button header-sidebar-toggle" onClick={onToggleSidebar} aria-label="Show sidebar" title="Show sidebar (Ctrl+B)" aria-expanded={false}><Icon name="panelLeft" size={18} /></button></>}
-        <div className="header-identity"><CompanionStatus messages={messages} running={running} teammate={teammate} /><div className="header-copy"><div className="header-name-line"><h2 title={teammate.name}>{teammate.name}</h2><span className={`conversation-state ${running ? 'working' : ''}`}><i />{running ? 'Working' : 'Ready'}</span></div><p title={instructions || teammate.persona} role={instructions ? 'status' : undefined}>{instructions || teammate.persona || 'Your teammate'}</p></div></div>
+        <div className="header-identity"><CompanionStatus messages={messages} running={running} teammate={teammate} /><div className="header-copy"><div className="header-name-line"><h2 title={teammate.name}>{teammate.name}</h2><span className={`conversation-state ${running ? 'working' : ''}`}><i />{statusLabel}</span></div><p title={instructions || teammate.persona} role={instructions ? 'status' : undefined}>{instructions || teammate.persona || 'Your teammate'}</p></div></div>
       </div>
       <div className="header-actions no-drag">
         <button className="icon-button palette-launcher" onClick={() => window.dispatchEvent(new Event('ankita:palette'))} aria-label="Open command palette" title="Commands, skills and tasks (Ctrl+K)"><Icon name="search" size={16} /></button>
@@ -104,6 +109,7 @@ export function ChatPane({ teammate, messages, running, models, projects, defaul
       <div />
     </div></div>
     {!atBottom && <button className="jump-to-bottom" onClick={jump} aria-label="Jump to latest"><Icon name="chevron" size={17} /><span>Latest</span></button>}
-    <div className="jobs-composer"><JobsPill jobs={jobs} onEdit={onEditJob} onWatch={onWatchJob} /><Composer threadId={teammate.id} name={teammate.name} messages={messages} running={running} models={models} model={teammate.model || defaultModel} provider={provider} projects={projects} projectId={teammate.projectId} commandsRevision={commandsRevision} onProject={onProject} onCommand={onCommand} onModel={onModel} onSend={onSend} onStop={onStop} /></div>
+    <div className="jobs-composer"><JobsPill jobs={jobs} onEdit={onEditJob} onWatch={onWatchJob} />
+      <Composer threadId={teammate.id} name={teammate.name} messages={messages} running={running} sendDisabled={needsReplyCheck} models={models} model={teammate.model || defaultModel} provider={provider} projects={projects} projectId={teammate.projectId} commandsRevision={commandsRevision} onProject={onProject} onCommand={onCommand} onModel={onModel} onSend={onSend} onStop={onStop} /></div>
   </main>;
 }

@@ -49,6 +49,26 @@ test('exact conversation handoff joins the later input_message request ID before
   assert.deepEqual(ids(), [requestId]);
   assert.equal(JSON.stringify(context.AnkitaRequestOrigins.requestIds(binding)).includes('private'), false);
 });
+test('an opening retains passive first-turn request metadata until its exact user receipt confirms the real chat', async t => {
+  const tool = { author: { role: 'tool', name: 'api_tool.call_tool' }, metadata: { request_id: requestId,
+    invoked_resource: { resource_uri: '/asdk_app_owned/link_owned/read_file', app_name: 'ANKITA Proof' } } };
+  const { context, location } = page(t, () => Promise.resolve(response(handoff + input + sse({ message: tool }))));
+  const opening = { ...binding, conversationId: null, openingId: crypto.randomUUID() };
+  location.pathname = '/'; location.hash = '#ankita-opening=' + opening.openingId;
+  context.URLSearchParams = URLSearchParams;
+  context.AnkitaBrowserDelivery = { openingActive: () => true }; // Fixture's exact authored Send is active; no browser action is mocked here.
+  assert.equal(context.AnkitaRequestOrigins.bind(opening, browserWire), true);
+  await context.fetch('/backend-api/f/conversation', { method: 'POST' });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.deepEqual(JSON.parse(JSON.stringify(context.AnkitaRequestOrigins.requestIds(opening))), [], 'pending metadata cannot grant a native tool request before chat adoption');
+  location.pathname = '/c/' + conversationId; location.hash = '';
+  const adopted = { ...opening, conversationId };
+  assert.equal(context.AnkitaRequestOrigins.bind(adopted, browserWire), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.AnkitaRequestOrigins.requestIds(adopted))), [requestId]);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.AnkitaRequestOrigins.appSightings(adopted))), [
+    { requestId, appId: 'asdk_app_owned', appName: 'ANKITA Proof', toolName: 'read_file' },
+  ]);
+});
 
 test('root delta messages inherit only validated v1 headers and ignore text and nested request-like fields', async t => {
   const body = { conversation_id: conversationId, message: { metadata: { request_id: requestId } } };

@@ -2,7 +2,7 @@
  * Only a host-dispatched operation can click one exact native Send control.
  */
 var AnkitaBrowserDelivery = (() => {
-  const VERSION = 5; // Adapter revision; host dispatch remains spent across attachment-reader upgrades.
+  const VERSION = 8; // Adapter revision; app-owned receipts recognize one measured native Markdown storage-escape pass.
   const prior = globalThis.AnkitaBrowserDelivery;
   if (prior?.version === VERSION) return prior;
   const SCOPE = ['leaseId', 'epoch', 'tabId', 'conversationId']; // Opaque page ownership only.
@@ -24,12 +24,27 @@ var AnkitaBrowserDelivery = (() => {
     refusal: /^(?:this request (?:was|is) (?:blocked|refused)|cannot fulfill this request|cannot comply with this request)/i,
     'model-unavailable': /^(?:this model is (?:unavailable|not available)|model unavailable)/i,
     transport: /^(?:a network error occurred|error in message stream|there was an error generating (?:a|the) response|stream cache expired|resume stream unavailable)/i }); // English notices fail closed; unknown/localized variants remain unconfirmed.
-  const same = (a, b) => Boolean(a && b && SCOPE.every(key => a[key] === b[key]));
+  const same = (a, b) => Boolean(a && b && a.openingId === b.openingId && SCOPE.every(key => key === 'conversationId' && a.openingId && (a[key] === null || b[key] === null) ? true : a[key] === b[key]));
   const compact = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const STORED_PUNCTUATION_ESCAPE = /\\([\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e])/g; // CommonMark ASCII punctuation; exact CoS read-back grammar, never authored-input rewriting.
+  const STORED_HARD_BREAK_ESCAPE = /\\\r?\n/g; // A native Markdown hard break serializes a backslash before the line ending.
+  const STORED_LEADING_SPACE = /(^|\n)&#x20;/g; // Native escaped indentation at the start of a stored line.
+  function matchesSubmittedText(text, owner) {
+    const expected = compact(owner.text);
+    const authored = globalThis.AnkitaAppMentions?.withoutLinks(text, owner.appMentions) ?? text;
+    if (compact(text) === expected || compact(authored) === expected) return true;
+    // Only a spent, app-owned Send reaches snapshot. Decode its native read-back once,
+    // as CoS matchesSubmittedBootstrap does; literal paths and repeated escaping stay distinct.
+    return typeof authored === 'string' && compact(authored.replace(STORED_HARD_BREAK_ESCAPE, '\n')
+      .replace(STORED_PUNCTUATION_ESCAPE, '$1').replace(STORED_LEADING_SPACE, '$1 ')) === expected;
+  }
   const opaque = (value, config) => typeof value === 'string' && value.length > 0 && value.length <= config.maxIdChars;
   const visible = (node, config) => Boolean(node?.isConnected && node.getClientRects().length && !node.closest(config.hidden) &&
     getComputedStyle(node).display !== 'none' && getComputedStyle(node).visibility !== 'hidden');
-  const route = (scope, config) => location.origin === config.chatgptOrigin && location.pathname.match(new RegExp(config.conversationPattern, 'i'))?.[1] === scope?.conversationId;
+  const currentConversation = config => location.pathname.match(new RegExp(config.conversationPattern, 'i'))?.[1] ?? null;
+  const route = (scope, config) => location.origin === config.chatgptOrigin && (scope?.conversationId ? currentConversation(config) === scope.conversationId :
+    scope?.openingId && ((location.pathname === '/' && new URLSearchParams(location.hash.slice(1)).get(config.openingFragmentKey) === scope.openingId) ||
+      (state?.attempted && !state.openingRevoked && state.scope.openingId === scope.openingId && Boolean(currentConversation(config)))));
   function blocked(scope, config) {
     if (!route(scope, config)) return null;
     const reasons = new Set();
@@ -42,7 +57,9 @@ var AnkitaBrowserDelivery = (() => {
     return reasons.size === 1 ? [...reasons][0] : null;
   }
   let state = null;
-  const draft = box => typeof box.value === 'string' ? box.value : box.innerText ?? box.textContent ?? '';
+  const revokeOpening = event => { if (event.isTrusted && state?.scope.openingId && state.attempted && !state.receipt) state.openingRevoked = true; };
+  for (const event of ['pointerdown', 'keydown']) document.addEventListener(event, revokeOpening, true); // A person's navigation cannot be mistaken for the first Send's assigned chat.
+  const draft = box => typeof box.value === 'string' ? box.value : globalThis.AnkitaAppMentions?.plainText(box) ?? box.innerText ?? box.textContent ?? '';
   function controls(selector, box, config) {
     const form = box?.closest('form');
     return form ? [...form.querySelectorAll(selector)].filter(node => visible(node, config) && node.closest('form') === form) : [];
@@ -66,7 +83,7 @@ var AnkitaBrowserDelivery = (() => {
     for (const section of [...document.querySelectorAll(config.turns)].slice(-config.maxTurns)) {
       if (!visible(section, config)) continue;
       const fiber = readers.fiberOf(section), evidence = readers.conversationEvidenceOf(fiber);
-      if (evidence.conflict || evidence.conversationId !== scope.conversationId) continue;
+      if (evidence.conflict || evidence.conversationId !== (scope.conversationId ?? currentConversation(config))) continue;
       const explicit = section.getAttribute(TURN_ID_ATTRIBUTE) || section.closest(`[${TURN_KEY_ATTRIBUTE}]`)?.getAttribute(TURN_KEY_ATTRIBUTE);
       const messages = (readers.shellTurnMessages(fiber, explicit, config.maxFinalTextChars) ?? readers.turnMessagesOf(fiber, config.maxFinalTextChars) ?? []).slice(-config.maxRequests);
       const users = messages.filter(message => message?.author?.role === 'user' && opaque(message.id, config));
@@ -170,10 +187,12 @@ var AnkitaBrowserDelivery = (() => {
       const scope = operation.scope;
       if (!route(scope, config) || !opaque(operation.id, config) || typeof operation.text !== 'string' || operation.text.length > config.maxOperationTextChars) return { ready: false, reason: 'scope-changed' };
       const refusal = blocked(scope, config); if (refusal) return { ready: false, reason: refusal };
+      const apps = operation.appNames?.length ? globalThis[config.appMentionsGlobal]?.resolve(operation.appNames) ?? { ready: false, reason: 'apps-unobserved' } : { ready: true, appMentions: [] };
+      if (!apps.ready) return apps;
       if (state?.operationId === operation.id && same(state.scope, scope)) {
         const owner = state, uploaded = await owner.upload;
         return { ready: uploaded && state === owner && !owner.attempted && compact(draft(owner.box)) === compact(operation.text) &&
-          Boolean(sendControl(owner.box, config)) && !busy(owner.box, config), baselineUserIds: [...owner.baseline], attachments: owner.attachments ?? [], reason: owner.attempted ? 'already-dispatched' : uploaded ? 'control-pending' : 'upload-unconfirmed' };
+          Boolean(sendControl(owner.box, config)) && !busy(owner.box, config), baselineUserIds: [...owner.baseline], attachments: owner.attachments ?? [], appMentions: owner.appMentions, reason: owner.attempted ? 'already-dispatched' : uploaded ? 'control-pending' : 'upload-unconfirmed' };
       }
       const readers = globalThis[config.readerGlobal], box = readers?.composer();
       if (!box || !visible(box, config) || box.getAttribute('aria-disabled') === 'true' || busy(box, config)) return { ready: false, reason: 'page-busy' };
@@ -181,20 +200,32 @@ var AnkitaBrowserDelivery = (() => {
       if (operation.modelId) return { ready: false, reason: 'explicit-model-selection-required' }; // Current-model delivery only until evaluated model switching is implemented.
       const baseline = new Set(nativeRows(scope, config).filter(row => row.role === 'user').map(row => row.id));
       if (!insertPrompt(box, operation.text, readers)) return { ready: false, reason: 'draft-unavailable' };
-      state = { operationId: operation.id, scope: { ...scope }, text: operation.text, box, baseline, attempted: false };
+      state = { operationId: operation.id, scope: { ...scope }, text: operation.text, box, baseline, attempted: false, appMentions: apps.appMentions };
       const owner = state; owner.upload = upload(operation, config, owner);
       const uploaded = await owner.upload;
-      return { ready: uploaded && state === owner && Boolean(sendControl(box, config)), baselineUserIds: [...baseline], attachments: owner.attachments ?? [], reason: uploaded ? 'control-pending' : 'upload-unconfirmed' };
+      return { ready: uploaded && state === owner && Boolean(sendControl(box, config)), baselineUserIds: [...baseline], attachments: owner.attachments ?? [], appMentions: owner.appMentions, reason: uploaded ? 'control-pending' : 'upload-unconfirmed' };
     } catch { return { ready: false, reason: 'prepare-failed' }; }
   }
-  function send(operation, config) {
+  async function send(operation, config) {
     try {
-      if (!state || state.operationId !== operation.id || state.attempted || !same(state.scope, operation.scope) || !route(state.scope, config)) return { dispatched: false };
+      if (!state || state.operationId !== operation.id || state.attempted || state.addingApps || !same(state.scope, operation.scope) || !route(state.scope, config)) return { dispatched: false };
       const readers = globalThis[config.readerGlobal], box = readers.composer(), button = sendControl(box, config);
       if (box !== state.box || !visible(box, config) || !button || busy(box, config) || compact(draft(box)) !== compact(state.text)) return { dispatched: false };
       const tiles = attachmentTiles(box);
       if (uploadBusy(box) || tiles.length !== (state.uploadTiles?.length ?? 0) || tiles.some(button => !state.uploadTiles?.includes(button))) return { dispatched: false };
-      state.attempted = true; button.click(); // Spend page custody before native code can synchronously navigate or redraw.
+      const owner = state;
+      const stillCurrent = () => state === owner && !owner.attempted && route(owner.scope, config) && readers.composer() === box && visible(box, config) && !busy(box, config) && compact(draft(box)) === compact(owner.text);
+      if (owner.appMentions?.length) {
+        const apps = globalThis[config.appMentionsGlobal];
+        if (JSON.stringify(apps?.resolve(operation.appNames).appMentions) !== JSON.stringify(owner.appMentions)) return { dispatched: false, reason: 'app-tag-unconfirmed' };
+        owner.addingApps = true;
+        const added = await apps.add(box, owner.appMentions, stillCurrent);
+        owner.addingApps = false;
+        if (!added.ready) return { dispatched: false, reason: added.reason };
+        const currentTiles = attachmentTiles(box);
+        if (!stillCurrent() || !sendControl(box, config) || uploadBusy(box) || currentTiles.length !== tiles.length || currentTiles.some(tile => !tiles.includes(tile))) { added.cleanup(); return { dispatched: false, reason: 'app-tag-unconfirmed' }; }
+      }
+      owner.attempted = true; sendControl(box, config).click(); // Spend page custody before native code can synchronously navigate or redraw.
       return { dispatched: true };
     } catch { return { dispatched: false }; }
   }
@@ -203,9 +234,11 @@ var AnkitaBrowserDelivery = (() => {
     try {
       const rows = nativeRows(scope, config);
       const users = rows.filter(row => row.role === 'user' && (state.receipt ? row.id === state.receipt.userMessageId :
-        !state.baseline.has(row.id) && compact(row.text) === compact(state.text)));
+        !state.baseline.has(row.id) && matchesSubmittedText(row.text, state)));
       if (users.length !== 1) return null;
-      const user = users[0], receipt = { conversationId: scope.conversationId, userMessageId: user.id, turnId: user.turnId };
+      if (!scope.conversationId && rows.filter(row => row.role === 'user').length !== 1) return null;
+      const user = users[0], receipt = { conversationId: scope.conversationId ?? currentConversation(config), userMessageId: user.id, turnId: user.turnId };
+      state.receipt = receipt; // Freeze the exact native row before host acknowledgement or later navigation.
       const publicAnswers = rows.filter(row => row.userMessageId === user.id && row.turnId === user.turnId && row.role === 'assistant' && row.channel === 'final');
       const latest = publicAnswers.at(-1);
       const progress = latest && typeof latest.text === 'string' && latest.text.trim() && latest.text.length <= config.maxFinalTextChars ?
@@ -221,7 +254,7 @@ var AnkitaBrowserDelivery = (() => {
         !opaque(operation.id, config) || (!operation.receipt && !Array.isArray(operation.baselineUserIds))) return false;
     if (state?.operationId === operation.id && same(state.scope, operation.scope)) return true;
     state = { operationId: operation.id, scope: operation.scope, text: operation.text, baseline: new Set(operation.baselineUserIds ?? []),
-      receipt: operation.receipt, attempted: true, box: null };
+      receipt: operation.receipt, appMentions: operation.appMentions, attempted: true, box: null };
     return true; // Observation custody only: this state can never grant a second Send.
   }
   function prepareStop(command, config) {
@@ -251,5 +284,6 @@ var AnkitaBrowserDelivery = (() => {
     state.stopAttempted = command.id; stops[0].click(); // Host authorization must already be spent; reinjection observes instead of clicking again.
     return { confirmed: prepareStop(command, config).finished === true, receipt: prepared.receipt };
   }
-  return { version: VERSION, prepare, send, snapshot, watch, prepareStop, stop, blocked };
+  return { version: VERSION, prepare, send, snapshot, watch, prepareStop, stop, blocked,
+    openingActive: (scope, config) => Boolean(state?.attempted && !state.openingRevoked && same(state.scope, scope) && route(scope, config)) };
 })();

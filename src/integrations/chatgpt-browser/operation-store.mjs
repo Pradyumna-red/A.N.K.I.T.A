@@ -4,6 +4,7 @@ import { acceptedReceipt, completedReceipt } from './observations.mjs';
 import { DurableProfileState } from './durable-profile.mjs';
 import { BROWSER_BINDING_FIELDS as BINDING_FIELDS, sameBrowserBinding } from './protocol.mjs';
 import { validateBrowserUploads, uploadReceipt, attachmentMetadata } from './attachments.mjs';
+import { validateMentionNames, validateAppMentions, APP_MENTION_ERRORS } from './app-mentions.mjs';
 
 const STORE_VERSION = 1; // Durable schema version; unsupported state must never reset a spent Send.
 const STORE_FILE = 'operations.json'; // Profile-local file name; caller supplies the discovered directory.
@@ -16,18 +17,23 @@ const TERMINAL = [OPERATION_OUTCOMES.completed, OPERATION_OUTCOMES.stopped, OPER
 const opaque = value => typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_CHARS;
 export const sameOperationBinding = sameBrowserBinding;
 function bindingValue(value) {
-  if (!value || !Number.isSafeInteger(value.tabId) || BINDING_FIELDS.filter(key => key !== 'tabId' && key !== 'workspacePath').some(key => !opaque(value[key])) ||
+  if (!value || !Number.isSafeInteger(value.tabId) || BINDING_FIELDS.filter(key => key !== 'tabId' && key !== 'workspacePath').some(key => !opaque(value[key]) && !(key === 'conversationId' && value.conversationId === null && opaque(value.openingId))) ||
       typeof value.workspacePath !== 'string' || !value.workspacePath) throw new Error('Invalid operation binding');
-  return Object.fromEntries(BINDING_FIELDS.map(key => [key, value[key]]));
+  return { ...Object.fromEntries(BINDING_FIELDS.map(key => [key, value[key]])), ...(value.openingId ? { openingId: value.openingId } : {}) };
 }
 function immutable(value) {
   if (!opaque(value?.id) || value.kind !== 'send' || typeof value.text !== 'string' || !value.text.trim() || value.text.length > MAX_OPERATION_TEXT_CHARS) throw new Error('Invalid browser operation');
   return { id: value.id, binding: bindingValue(value.binding), kind: value.kind, text: value.text,
     ...(value.attachments?.length ? { attachments: validateBrowserUploads(value.attachments) } : {}),
+    ...(value.appNames !== undefined ? { appNames: validateMentionNames(value.appNames) } : {}),
     ...(value.modelId !== undefined ? { modelId: value.modelId } : {}) };
 }
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const epochKey = binding => hash(bindingValue(binding));
+const epochKey = binding => {
+  const value = bindingValue(binding);
+  if (value.openingId) value.conversationId = null; // Acquiring the first real chat cannot change the opening's cancellation fence.
+  return hash(value);
+};
 const receiptEqual = (a, b) => Boolean(a && b && ['conversationId', 'userMessageId', 'turnId'].every(key => a[key] === b[key]));
 
 /** Atomic host-owned Send ledger. Recovery reports custody and never submits browser work. */
@@ -42,7 +48,10 @@ export class BrowserOperationStore {
     if (state.version !== STORE_VERSION || !Array.isArray(state.operations) || state.operations.length > MAX_OPERATIONS ||
         !Array.isArray(state.stoppedEpochs) || state.stoppedEpochs.length > MAX_STOPPED_EPOCHS || state.stoppedEpochs.some(key => typeof key !== 'string') ||
         new Set(state.operations.map(row => row.id)).size !== state.operations.length) throw new Error('Unsupported or corrupt operation state version');
-    for (const row of state.operations) if (hash(immutable(row)) !== row.argumentsHash || !Object.values(OPERATION_OUTCOMES).includes(row.outcome)) throw new Error('Corrupt operation state');
+    for (const row of state.operations) {
+      if (hash(immutable(row)) !== row.argumentsHash || !Object.values(OPERATION_OUTCOMES).includes(row.outcome)) throw new Error('Corrupt operation state');
+      if (row.appMentions !== undefined) validateAppMentions(row.appMentions, row.appNames);
+    }
     if (!Array.isArray(state.stopRequests) || state.stopRequests.length > MAX_STOPPED_EPOCHS ||
         new Set(state.stopRequests.map(row => row.id)).size !== state.stopRequests.length || state.stopRequests.some(row =>
           !opaque(row.id) || !opaque(row.targetId) || !Object.values(STOP_PHASES).includes(row.phase) ||
@@ -81,6 +90,7 @@ export class BrowserOperationStore {
     return this.#run(state => {
       const row = this.#owned(state, id, binding);
       if (row.outcome !== OPERATION_OUTCOMES.claimed || state.stoppedEpochs.includes(epochKey(binding))) return false;
+      if (row.appNames?.length) row.appMentions = validateAppMentions(witness?.appMentions, row.appNames);
       if (witness !== undefined) {
         if (!Array.isArray(witness.baselineUserIds) || witness.baselineUserIds.length > MAX_REQUEST_IDS || witness.baselineUserIds.some(id => !opaque(id))) throw new Error('Invalid native Send baseline');
         row.baselineUserIds = [...new Set(witness.baselineUserIds)];
@@ -123,11 +133,12 @@ export class BrowserOperationStore {
       return row;
     }, true);
   }
-  fail(id, binding) {
+  fail(id, binding, reason) {
     return this.#run(state => {
       const row = this.#owned(state, id, binding);
       if (row.outcome === OPERATION_OUTCOMES.claimed) row.outcome = OPERATION_OUTCOMES.rejected;
       else if (row.outcome === OPERATION_OUTCOMES.dispatched) row.outcome = OPERATION_OUTCOMES.uncertain;
+      if (Object.hasOwn(APP_MENTION_ERRORS, reason) && [OPERATION_OUTCOMES.rejected, OPERATION_OUTCOMES.uncertain].includes(row.outcome)) row.failureReason = reason;
       return row;
     }, true);
   }

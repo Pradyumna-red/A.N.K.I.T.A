@@ -43,6 +43,11 @@ try {
   const initialized = await desktop.evaluate(() => window.ankita.invoke('initialize'));
   assert.equal(initialized.settings.provider, CHATGPT_BROWSER_PROVIDER); assert.deepEqual(initialized.models, []);
   const owner = initialized.teammates[0]; assert.ok(owner);
+  const appPreferences = await desktop.evaluate(action => window.ankita.invoke(action), CHATGPT_CONNECTION_ACTIONS.nativePreferences);
+  assert.equal(appPreferences.appNames.core, 'ANKITA Core');
+  await desktop.evaluate(({ action, appNames }) => window.ankita.invoke(action, { appNames, autoMention: true }), {
+    action: CHATGPT_CONNECTION_ACTIONS.nativeSaveApps, appNames: { ...appPreferences.appNames, core: 'ANKITA Proof' },
+  });
   const setup = await desktop.evaluate(({ action, threadId }) => window.ankita.invoke(action, { threadId }), { action: CHATGPT_CONNECTION_ACTIONS.start, threadId: owner.id });
   const local = new URL(setup.pairingUrl);
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${local.hash.slice(1)}`, Origin: `chrome-extension://${extensionId}` };
@@ -75,7 +80,11 @@ try {
       document.querySelector('[data-composer-attachments]').replaceChildren(); document.querySelector('input[type="file"]').value = '';
       const finish = () => { answer.content.parts = [ids.expected]; answer.end_turn = true; answer.status = 'finished_successfully'; document.querySelector('[data-testid="stop-button"]')?.remove(); };
       window.finishOwnedTurn = finish;
-      if (!window.holdNext) setTimeout(finish, 150);
+      if (window.sentCount === 1) {
+        const notice = document.createElement('div'); notice.setAttribute('role', 'alert'); notice.textContent = 'Error in message stream';
+        document.querySelector('form').before(notice);
+        window.finishFirstUse = () => { notice.remove(); finish(); };
+      } else if (!window.holdNext) setTimeout(finish, 150);
       else { const stop = document.createElement('button'); stop.type = 'button'; stop.dataset.testid = 'stop-button'; stop.textContent = 'Stop'; stop.onclick = () => { window.stopCount++; finish(); }; document.querySelector('form').append(stop); }
     };
   }, { conversationId, userId, answerId, turnId, expected });
@@ -92,7 +101,7 @@ try {
     window.fixtureEvents = []; window.ankita.onEvent(event => window.fixtureEvents.push(event));
   });
   await desktop.evaluate(({ id, text }) => window.ankita.invoke('send', { id, text }), { id: owner.id, text: question });
-  const chromeApi = { tabs: { get: async () => ({ url: `${browserWire.chatgptOrigin}/c/${conversationId}` }) }, scripting: { executeScript: async request =>
+  const chromeApi = { tabs: { get: async () => ({ url: page.url() }) }, scripting: { executeScript: async request =>
     [{ result: await page.evaluate(({ source, args }) => (0, eval)(`(${source})`)(...args), { source: request.func.toString(), args: request.args }) }] } };
   const pump = async () => {
     const command = await poll(); await observe(command);
@@ -111,26 +120,33 @@ try {
     throw new Error('Lifecycle fixture did not reach its exact receipt');
   };
   const deadline = Date.now() + TIMEOUT_MS;
-  let completed = false;
+  let completed = false, transportPauseObserved = false;
   while (Date.now() < deadline) {
     const command = await poll(); await observe(command);
     if (command.operation) await executeBoundSend(chromeApi, command.operation, { config,
       authorize: async (operationId, witness) => (await post(ROUTES.authorize, { binding, operationId, witness })).allowed,
       acknowledge: receipt => post(ROUTES.receipt, { binding, operationId: command.operation.id, receipt }) });
+    if (!transportPauseObserved && (await desktop.evaluate(action => window.ankita.invoke(action), CHATGPT_CONNECTION_ACTIONS.overview)).blockedReason === 'transport') {
+      transportPauseObserved = true; await page.evaluate(() => window.finishFirstUse());
+    }
     completed = await desktop.evaluate(id => window.fixtureEvents.some(event => event.threadId === id && event.type === 'turn-end'), owner.id);
     if (completed) break;
     await new Promise(resolve => setTimeout(resolve, POLL_MS));
   }
   assert.equal(completed, true, 'owned native reply did not complete');
+  assert.equal(transportPauseObserved, true, 'first-use transport warning must precede completion without restarting');
   assert.equal(await page.evaluate(() => window.sentCount), 1);
   const transcript = await desktop.evaluate(id => window.ankita.invoke('loadThread', { id }), owner.id);
   assert.equal(transcript.at(-1).content, expected);
+  assert.equal(transcript.filter(message => message.role === 'assistant' && message.content === expected).length, 1);
   const events = await desktop.evaluate(() => window.fixtureEvents);
   assert.equal(events.filter(event => event.type === 'turn-end').length, 1);
   assert.equal(events.some(event => event.type === 'usage'), false);
   assert.deepEqual(errors, []);
-  const vault = fs.readFileSync(path.join(configDir, CREDENTIAL_STORE_FILENAME), 'utf8');
+  const encryptionProfile = await application.evaluate(({ app }) => app.getPath('userData'));
+  const vault = fs.readFileSync(path.join(encryptionProfile, CREDENTIAL_STORE_FILENAME), 'utf8');
   assert.equal(vault.includes(local.hash.slice(1)), false); assert.equal(vault.includes(conversationId), false);
+  assert.equal(fs.existsSync(path.join(configDir, CREDENTIAL_STORE_FILENAME)), false, 'a new desktop vault must not overwrite the shared CLI/dev credential file');
   const resumedAnswer = 'Owned resumed attachment answer ' + randomUUID();
   await page.evaluate(ids => { window.nextNativeIds = ids; window.holdNext = true; }, { userId: randomUUID(), answerId: randomUUID(), turnId: randomUUID(), expected: resumedAnswer });
   await desktop.evaluate(({ id, text, data }) => window.ankita.invoke('send', { id, text, attachments: [{ name: 'owned-proof.txt', data }] }),
@@ -146,6 +162,7 @@ try {
   await desktop.waitForFunction(() => Boolean(window.ankita)); await desktop.evaluate(() => window.ankita.invoke('initialize'));
   const restored = await desktop.evaluate(action => window.ankita.invoke(action), CHATGPT_CONNECTION_ACTIONS.overview);
   assert.equal(restored.conversationId, conversationId); assert.equal(restored.threadId, owner.id);
+  assert.equal((await desktop.evaluate(action => window.ankita.invoke(action), CHATGPT_CONNECTION_ACTIONS.nativePreferences)).appNames.core, 'ANKITA Proof');
   assert.equal(restored.nativeTools.every(item => item.status === 'setup-required'), true);
   await until(async () => (await desktop.evaluate(action => window.ankita.invoke(action), CHATGPT_CONNECTION_ACTIONS.overview)).status === 'ready');
   assert.equal(await page.evaluate(() => window.sentCount), 2, 'restart only reads the accepted original turn');
@@ -164,13 +181,18 @@ try {
   await desktop.getByRole('button', { name: 'Providers', exact: true }).click();
   await desktop.getByRole('heading', { name: 'Your ChatGPT conversation' }).waitFor();
   await desktop.locator('.chatgpt-connection').scrollIntoViewIfNeeded();
+  await desktop.getByText('Let ChatGPT use ANKITA’s tools', { exact: true }).click();
+  assert.equal(await desktop.locator('details.chatgpt-native-card:not([open])').count(), 3);
+  await desktop.locator('.chatgpt-native-card').last().scrollIntoViewIfNeeded();
+  assert.equal(await desktop.locator('.settings-scroll').evaluate(element => getComputedStyle(element).scrollbarWidth), 'none');
   const screenshot = path.join(ROOT, '.commandcode/chatgpt-connection-desktop.png'); await desktop.screenshot({ path: screenshot });
   console.log(JSON.stringify({ actualElectron: true, provider: CHATGPT_BROWSER_PROVIDER, apiCredentials: false,
-    browser: 'isolated-native-DOM-fixture', sends: 1, acceptedUserRead: true, finalReceiptRead: true, desktopReplyMatched: true,
+    browser: 'isolated-native-DOM-fixture', sends: 1, firstUseTransportRecoveredWithoutRestart: transportPauseObserved, acceptedUserRead: true, finalReceiptRead: true, desktopReplyMatched: true,
     savedHistoryMatched: true, turnEnds: 1, inventedUsage: false, rendererErrors: errors, hostedChatGpt: false,
     packagedApplication: Boolean(packagedExecutable), attachmentAccepted: true, actualOsEncryptedPairing: true,
     samePairingRestored: true, crashResumeWithoutReplay: true, resumedReplyImportedOnce: true, nativeHelpersLaunchedOnRestart: 0,
-    ownedStopClicks: 1, nativeStopConfirmed: true, userBrowserSurvived: true, lifecycleSends: 3 }));
+    ownedStopClicks: 1, nativeStopConfirmed: true, userBrowserSurvived: true, lifecycleSends: 3,
+    nativeAppPreferencesPersisted: true, nativeConnectionFilesPresent: restored.nativeTools.every(item => item.available) }));
 } finally {
   await browser?.close(); await application?.close();
   const target = fs.realpathSync(directory), base = fs.realpathSync(os.tmpdir());

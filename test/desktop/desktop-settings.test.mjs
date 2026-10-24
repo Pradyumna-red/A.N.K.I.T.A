@@ -5,6 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { DesktopSettingsStore, applyDesktopSettings, seedFreshDesktopProvider, testCustomProvider } from '../../desktop/electron/settings.mjs';
 
+test('the current desktop loads a saved browser provider without resetting or rewriting settings', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-settings-browser-load-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'desktop-settings.json');
+  const original = JSON.stringify({ version: 1, settings: { provider: 'chatgpt-browser', appearance: 'slate', profileSetupDone: true } });
+  fs.writeFileSync(file, original);
+  assert.equal(new DesktopSettingsStore(file).load().data.provider, 'chatgpt-browser');
+  assert.equal(fs.readFileSync(file, 'utf8'), original);
+});
+
 test('fresh desktop installs select Kilo while existing users and explicit settings keep their provider', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-fresh-provider-'));
   try {

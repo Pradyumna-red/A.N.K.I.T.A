@@ -1,10 +1,34 @@
 // Generated from services/chatgpt-bridge/config.mjs; regenerate with scripts/build-chatgpt-companion.mjs.
 export const wire = Object.freeze({
   "version": 1,
+  "appId": "ankita",
+  "discoveryPorts": [
+    39661,
+    39662,
+    39663,
+    39664,
+    39665
+  ],
   "pollMs": 2000,
   "chatgptMatch": "https://chatgpt.com/*",
+  "chromeSetupMessage": "In ANKITA, open Settings → Providers, choose My Chrome, then click Use my Chrome. Keep this Chrome profile open.",
+  "pageAdapterFiles": [
+    "upstream/readers.js",
+    "upstream/request-origins.js",
+    "upstream/app-mentions.js",
+    "upstream/delivery.js"
+  ],
+  "openingFragmentKey": "ankita-opening",
+  "windowBounds": {
+    "width": 560,
+    "height": 760
+  },
+  "appResourcePattern": "^\\/(asdk_app_[A-Za-z0-9_-]{1,160})\\/(link_[A-Za-z0-9_-]{1,160})\\/([^/\\s]{1,200})$",
   "chatgptOrigin": "https://chatgpt.com",
   "routes": {
+    "hello": "/hello",
+    "provision": "/provision",
+    "signIn": "/sign-in",
     "pair": "/pair",
     "tabs": "/tabs",
     "bind": "/bind",
@@ -25,6 +49,7 @@ export const wire = Object.freeze({
   "originsGlobal": "AnkitaRequestOrigins",
   "observationMaxAgeMs": 15000,
   "deliveryGlobal": "AnkitaBrowserDelivery",
+  "appMentionsGlobal": "AnkitaAppMentions",
   "maxOperationTextChars": 240000,
   "maxFinalTextChars": 65536,
   "sendReadyMs": 5000,

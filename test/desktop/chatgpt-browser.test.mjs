@@ -15,6 +15,7 @@ import { McpClient } from '../../src/integrations/mcp-client.mjs';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 import { SecureStore } from '../../desktop/electron/secure-store.mjs';
+import { PersistentToolReceipts } from '../../src/integrations/chatgpt-browser/tool-receipts.mjs';
 
 function fixture(t, overrides = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-desktop-chatgpt-'));
@@ -34,6 +35,160 @@ function fixture(t, overrides = {}) {
   t.after(() => engine.close());
   return { engine, browser, directory, events, calls };
 }
+
+test('automatic browser Send waits for its selected page and cancels a waiting Send without queuing', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-wait-browser-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)), getContext: () => ({}) });
+  manager.mode = 'chrome'; manager.threadId = 'owner';
+  let ready = false, sends = 0;
+  manager.runtime = { view: () => ({ status: ready ? 'ready' : 'observing' }), send: async () => { sends++; return 'sent'; } };
+  const waiting = manager.send({ threadId: 'owner', text: 'fixture' });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(sends, 0, 'page discovery must finish before attempting runtime Send');
+  assert.equal(manager.view().replying,true,'the composer sees the pending browser startup');
+  ready = true; assert.equal(await waiting, 'sent');
+  assert.equal(manager.view().replying,false,'the pending indicator clears immediately after the turn settles');
+  ready = false;
+  const control = new AbortController();
+  const cancelled = manager.send({ threadId: 'owner', text: 'fixture', signal: control.signal });
+  control.abort(); await assert.rejects(cancelled, /abort|cancel/i); assert.equal(sends, 1);
+});
+
+test('built-in browser connects its owned page without a pairing URL or extension installation', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-owned-manager-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const conversationId = crypto.randomUUID(), tab = { id: 7, url: `https://chatgpt.com/c/${conversationId}` };
+  let opens = 0;
+  const api = { tabs: { get: async () => tab, query: async () => [tab] }, scripting: { executeScript: async request => [{ result:
+    request.func?.name === 'readSelectedPage' ? { conversationId, accountReady: true, nativeAppTagsReady: true, models: [], requestIds: [] } : undefined }] } };
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)),
+    getContext: threadId => ({ threadId, workspacePath: directory }),
+    windowFactory: () => ({ api, open: async () => { opens++; return tab; }, close: async () => {} }) });
+  t.after(() => manager.close());
+  const result = await manager.start({ threadId: 'owner', mode: 'builtin' });
+  assert.equal(result.state.mode, 'builtin'); assert.equal(result.state.status, 'ready');
+  assert.equal(result.pairingUrl, undefined); assert.equal(manager.bridge.address, null);
+  assert.equal(opens, 1);
+  assert.equal(result.state.conversationId, conversationId);
+});
+
+test('a sign-in return to the owned home page restores its blank-chat marker once', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-login-return-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  let opens = 0, tab = { id: 7, url: 'https://chatgpt.com/' };
+  const api = { tabs: { get: async () => tab }, scripting: { executeScript: async request => [{ result: request.func?.name === 'readSelectedPage'
+    ? { conversationId: null, accountReady: true, nativeAppTagsReady: true, models: [], requestIds: [] } : undefined }] } };
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)), getContext: threadId => ({ threadId, workspacePath: directory }),
+    windowFactory: () => ({ api, open: async input => { if (++opens > 1) tab = { ...tab, url: input.url }; return tab; }, close: async () => {} }) });
+  t.after(() => manager.close());
+  const result = await manager.start({ threadId: 'owner', mode: 'builtin' });
+  assert.equal(result.state.status, 'ready'); assert.equal(opens, 2);
+  await manager.pumpOwned(); assert.equal(opens, 2, 'polling cannot repeatedly reload the signed-in home page');
+  const before = new Set(process._getActiveHandles());
+  t.after(async () => { for (const handle of process._getActiveHandles()) if (!before.has(handle) && handle.constructor?.name === 'Server' && handle.listening) await new Promise(resolve => handle.close(resolve)); });
+  await Promise.all([manager.startSignInTransfer(), manager.startSignInTransfer()]);
+  const listeners = () => [...new Set(process._getActiveHandles())].filter(handle => !before.has(handle) && handle.constructor?.name === 'Server' && handle.listening);
+  assert.equal(listeners().length, 1, 'simultaneous clicks must share one handoff listener');
+  const loginBridge = manager.signInBridge, profile = 'root-tab-profile';
+  await loginBridge.pair({ browserId: profile, extensionId: 'a'.repeat(32), version: 1 });
+  await loginBridge.reportTabs({ browserId: profile, tabs: [{ id: 9, url: 'https://chatgpt.com/' }, { id: 10, url: 'https://example.com/' }] });
+  assert.deepEqual((await loginBridge.listTabs()).map(tab => tab.id), [9], 'the handoff can select an ordinary new ChatGPT tab');
+  await assert.rejects(loginBridge.bind({ browserId: profile }), /only carries.*sign-in/);
+  await manager.close(); assert.equal(listeners().length, 0);
+});
+
+test('closing during owned browser startup cannot revive its binding or publish a late window', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-owned-start-stop-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  let entered, release;
+  const reached = new Promise(resolve => { entered = resolve; }), gate = new Promise(resolve => { release = resolve; });
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)),
+    getContext: threadId => ({ threadId, workspacePath: directory }), windowFactory: () => ({
+      open: async () => { entered(); await gate; return { id: 1, url: 'https://chatgpt.com/' }; }, close: async () => {} }) });
+  const starting = manager.start({ threadId: 'owner', mode: 'builtin' }); void starting.catch(() => {});
+  await reached; await manager.close(); release();
+  await assert.rejects(starting, /closed|changed|disconnect/i);
+  assert.equal(manager.bridge, null); assert.equal(manager.ownedTabId, null);
+});
+
+test('Stop during an authored Send startup prevents a later browser open', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-owned-send-stop-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  let entered, release, opens = 0;
+  const reached = new Promise(resolve => { entered = resolve; }), gate = new Promise(resolve => { release = resolve; });
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)),
+    getContext: threadId => ({ threadId, workspacePath: directory }), windowFactory: () => ({ open: async () => { opens++; return { id: 1 }; }, close: async () => {} }) });
+  t.after(() => manager.close()); manager.mode = 'builtin';
+  const run = manager.nativeSettings.run.bind(manager.nativeSettings); let first = true;
+  manager.nativeSettings.run = async (...args) => { if (first) { first = false; entered(); await gate; } return run(...args); };
+  const sending = manager.send({ threadId: 'owner', text: 'fixture' }); void sending.catch(() => {});
+  await reached; await manager.cancel('owner'); release();
+  await assert.rejects(sending, /cancel|closed|changed/i); assert.equal(opens, 0, 'Stop revokes pending startup before opening or navigating a browser');
+});
+
+test('native app names are prefilled, editable and restored without changing tunnel credentials', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-native-app-names-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  let secretReads = 0;
+  const make = () => new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)), getContext: () => ({}),
+    secureStore: { listSecrets: async () => [], withSecret: async () => { secretReads++; } } });
+  const manager = make();
+  const defaults = await manager.readNativePreferences();
+  assert.equal(defaults.appNames.core, 'ANKITA Core');
+  assert.equal(defaults.autoMention, true);
+  await manager.saveAppPreferences({ appNames: { ...defaults.appNames, core: 'ANKITA Proof' }, autoMention: false });
+  const restored = await make().readNativePreferences();
+  assert.equal(restored.appNames.core, 'ANKITA Proof');
+  assert.equal(restored.autoMention, false);
+  assert.deepEqual(restored.tunnels, {});
+  assert.equal(secretReads, 0);
+});
+
+test('a served native result teaches the actual app name and caches its ID only for the same browser and chat', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-proven-app-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)), getContext: () => ({}) });
+  const binding = { leaseId: crypto.randomUUID(), epoch: crypto.randomUUID(), browserId: crypto.randomUUID(), tabId: 1,
+    threadId: 'owner', workspacePath: directory, conversationId: crypto.randomUUID() };
+  const receipts = new PersistentToolReceipts({ directory: manager.directory });
+  const proof = await receipts.begin('fixture-native-call', 'a'.repeat(64), { binding, surface: 'core', requestId: 'served-request', name: 'read_file' });
+  await receipts.settle(proof.id, { content: [{ type: 'text', text: 'fixture native result' }], isError: false });
+  assert.equal(typeof manager.learnConnectorApps, 'function');
+  await manager.learnConnectorApps(binding, [{ requestId: 'served-request', appId: 'asdk_app_actual_proof', appName: 'ANKITA Proof', toolName: 'read_file' }]);
+  assert.equal((await manager.readNativePreferences()).appNames.core, 'ANKITA Proof');
+  assert.deepEqual(manager.getProvenApps(binding), [{ name: 'ANKITA Proof', path: 'app://asdk_app_actual_proof' }]);
+  assert.deepEqual(manager.getProvenApps({ ...binding, browserId: 'other-account-profile' }), []);
+  await manager.nativeSettings.run(state => { state.tunnels.core = { tunnelId: 'tunnel_' + 'c'.repeat(32), desired: false }; }, true);
+  await manager.readNativePreferences();
+  assert.deepEqual(manager.getProvenApps(binding), [], 'a different tunnel cannot inherit a remembered app ID');
+  manager.connectorApps[Object.keys(manager.connectorApps)[0]] = { invalid: true };
+  assert.deepEqual(manager.getProvenApps(binding), [], 'malformed optional cache data cannot break the connection');
+  const preferences = await manager.readNativePreferences();
+  await manager.saveAppPreferences({ appNames: { ...preferences.appNames, core: 'My other Core' }, autoMention: true });
+  assert.deepEqual(manager.getProvenApps(binding), [], 'an explicit app-name change invalidates learned selection');
+});
+
+test('desktop automatically includes only enabled tool groups and respects tools-off and saved app aliases', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-auto-apps-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const manager = new DesktopChatGptBrowser({ directory, resourceRoot: fileURLToPath(new URL('../../', import.meta.url)), getContext: () => ({}) });
+  await manager.nativeSettings.run(state => { state.tunnels = {
+    core: { tunnelId: 'tunnel_' + 'a'.repeat(32), desired: true },
+    desktop: { tunnelId: 'tunnel_' + 'b'.repeat(32), desired: true },
+    plugins: { tunnelId: 'tunnel_' + 'c'.repeat(32), desired: false },
+  }; }, true);
+  const defaults = await manager.readNativePreferences();
+  await manager.saveAppPreferences({ appNames: { ...defaults.appNames, core: 'ANKITA Proof' }, autoMention: true });
+  manager.runtime = { pending: new Map(), view: () => ({ status: 'ready' }), send: async input => input };
+  const input = { threadId: 'test-owner', text: 'a normal message without plugin names' };
+  assert.deepEqual((await manager.send(input)).appNames, ['ANKITA Proof', 'ANKITA Desktop']);
+  assert.deepEqual((await manager.send({ ...input, includeTools: false })).appNames, []);
+  await manager.stopNativeTools({ surface: 'desktop' });
+  assert.deepEqual((await manager.send(input)).appNames, ['ANKITA Proof']);
+  await manager.saveAppPreferences({ appNames: defaults.appNames, autoMention: false });
+  assert.deepEqual((await manager.send(input)).appNames, []);
+});
 
 test('keyless desktop browser provider uses runtime Send with no API bootstrap or Agent and one turn end', async t => {
   const { engine, calls, events } = fixture(t);
@@ -219,8 +374,9 @@ test('bound desktop native gateway performs real write/edit/readback and command
   assert.match((await client.callTool('read_file', { path: 'native.txt' })).raw.content[0].text, /after native edit/);
   const marker = 'native-command-' + crypto.randomUUID();
   const quote = text => process.platform === 'win32' ? "'" + text.replaceAll("'", "''") + "'" : "'" + text.replaceAll("'", "'\\''") + "'";
-  const command = (process.platform === 'win32' ? '& ' : '') + quote(process.execPath) + ' -e ' + quote(`process.stdout.write(${JSON.stringify(marker)})`);
-  const executed = await client.callTool('run_command', { command, yield_ms: 10000 });
+  // Pass the marker through the environment: PowerShell 5.1 drops nested double quotes passed to native commands.
+  const command = (process.platform === 'win32' ? '& ' : '') + quote(process.execPath) + ' -e ' + quote('process.stdout.write(process.env.ANKITA_NATIVE_MARKER)');
+  const executed = await client.callTool('run_command', { command, env: { ANKITA_NATIVE_MARKER: marker }, yield_ms: 10000 });
   assert.equal(executed.isError, false);
   const job = [...state.jobs.values()].at(-1);
   if (!job.done) await new Promise((resolve, reject) => { job.child.once('close', resolve); job.child.once('error', reject); });

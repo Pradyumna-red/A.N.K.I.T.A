@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import publisher from '../vendor/openai-tunnel/source.json' with { type: 'json' };
-import { NATIVE_TUNNEL_RESOURCE_DIRECTORY } from '../src/integrations/chatgpt-browser/native-tunnel.mjs';
+import { NATIVE_TUNNEL_RESOURCE_DIRECTORY, nativeTunnelResourcesReady } from '../src/integrations/chatgpt-browser/native-tunnel.mjs';
 import './build-chatgpt-companion.mjs';
 
 const ROOT = fs.realpathSync(fileURLToPath(new URL('../', import.meta.url))); // Build checkout discovery, never a user profile path.
@@ -20,6 +20,8 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const option = name => { const index = process.argv.indexOf(name); return index < 0 ? null : process.argv[index + 1]; };
 const target = option('--target') ?? `${process.platform}-${process.arch}`;
 const artifact = publisher.targets[target];
+const nativeOutput = path.join(ROOT, 'desktop', NATIVE_TUNNEL_RESOURCE_DIRECTORY, target); // Target-specific build resources, never profile data.
+const cachedArtifact = artifact && { ...artifact, binary: path.join(nativeOutput, artifact.filename), companionBinary: path.join(nativeOutput, artifact.companionFilename) };
 const builderFile = path.join(ROOT, BUILDER_CONFIG), builderText = fs.readFileSync(builderFile, 'utf8');
 const signingStart = builderText.indexOf(SIGNING_BEGIN), signingEnd = builderText.indexOf(SIGNING_END);
 if (signingStart < 0 || signingEnd <= signingStart) throw new Error('Native publisher signing projection is missing');
@@ -30,6 +32,8 @@ fs.writeFileSync(builderFile, builderText.slice(0, signingStart) + projection + 
 if (!artifact) {
   fs.mkdirSync(path.join(ROOT, 'desktop', NATIVE_TUNNEL_RESOURCE_DIRECTORY), { recursive: true });
   console.log(JSON.stringify({ event: 'chatgpt-resources-ready', companion: true, nativeTarget: target, nativeTransport: 'unsupported' }));
+} else if (!option('--archive') && nativeTunnelResourcesReady(cachedArtifact)) {
+  console.log(JSON.stringify({ event: 'chatgpt-resources-ready', companion: true, nativeTarget: target, cached: true, primaryMatched: true, forwardingHelperMatched: true, notices: artifact.notices.length, binariesExecuted: false }));
 } else {
   if (process.platform !== 'win32') throw new Error('The verified Windows native archive requires Windows PowerShell extraction');
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), SCRATCH_PREFIX));

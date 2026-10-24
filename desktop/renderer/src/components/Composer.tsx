@@ -200,8 +200,9 @@ export async function readFile(file: File): Promise<Attachment> {
   return { name: file.name, image: false, data: toBase64(new TextEncoder().encode(new TextDecoder().decode(bytes))) };
 }
 
-export function Composer({ threadId, name, messages, running, models, model, provider, projects, projectId, commandsRevision, onProject, onCommand, onModel, onSend, onStop }: {
+export function Composer({ threadId, name, messages, running, sendDisabled = false, models, model, provider, projects, projectId, commandsRevision, onProject, onCommand, onModel, onSend, onStop }: {
   threadId: string; name: string; messages: ChatMessage[]; running: boolean; models: Model[]; model: string; provider?: string;
+  sendDisabled?: boolean;
   projects: Project[]; projectId: string | null; commandsRevision: number; onProject: (id: string | null) => void; onCommand: (command: string) => void;
   onModel: (id: string) => void; onSend: (text: string, attachments?: { name: string; data: string; kind?: 'document'; images?: string[] }[]) => void; onStop: () => void;
 }) {
@@ -257,6 +258,7 @@ export function Composer({ threadId, name, messages, running, models, model, pro
   const submit = () => {
     if (running || reading || (!text.trim() && !attachments.length)) return;
     if (slash.open) { slash.choose(); return; }
+    if (sendDisabled) return; // Preserve the draft while its original browser reply is being recovered.
     onSend(text.trim(), attachments.map(({ name: fileName, data, kind, images }) => ({ name: fileName, data, kind, ...(images?.length ? { images } : {}) })));
     store.update(threadId, () => EMPTY_COMPANION_DRAFT); input.current?.focus();
   };
@@ -291,7 +293,7 @@ export function Composer({ threadId, name, messages, running, models, model, pro
       <div className="composer-controls">
         <ModelPicker models={models} value={model} onChange={onModel} openUp provider={provider} />
         {running ? <button type="button" className="composer-action stop" onClick={onStop} title="Stop response" aria-label="Stop response"><Icon name="stop" size={17} /></button>
-          : <button type="button" className="composer-action send" onClick={submit} disabled={reading || (slash.open ? !slash.active : !text.trim() && !attachments.length)} title={slash.open ? 'Choose command' : 'Send message'} aria-label={slash.open ? 'Choose command' : 'Send message'}><Icon name="send" size={19} stroke={2.1} /></button>}
+          : <button type="button" className="composer-action send" onClick={submit} disabled={reading || (slash.open ? !slash.active : sendDisabled || !text.trim() && !attachments.length)} title={slash.open ? 'Choose command' : sendDisabled ? 'Open Settings → Providers to check the previous reply before sending' : 'Send message'} aria-label={slash.open ? 'Choose command' : 'Send message'}><Icon name="send" size={19} stroke={2.1} /></button>}
       </div>
     </div>
   </div></div>;

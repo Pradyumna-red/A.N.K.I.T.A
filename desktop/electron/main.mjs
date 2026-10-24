@@ -18,10 +18,12 @@ import { CompanionCapture } from './companion-capture.mjs';
 import { CAPTURE_ACTIONS, CAPTURE_EVENT } from '../browser-helper/protocol.mjs';
 import { CHATGPT_CONNECTION_ACTIONS } from '../shared/chatgpt-browser.mjs';
 import { chatgptResourcePaths } from './chatgpt-resources.mjs';
+import { desktopCredentialFile } from './credential-profile.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const APP_NAME = 'Ankita';
 const APP_ID = 'com.ankita.desktop';
+const CHATGPT_PROVIDER_REQUIRED_MESSAGE = 'Save ChatGPT Browser as your provider first'; // Shared owner-window setup prerequisite, including app-name settings.
 // Dev and packaged share one profile by default; on Windows a running packaged
 // instance holds the disk-cache files, so the dev instance fails Chromium's
 // cache move with "Access is denied (0x5)" and its single-instance lock is
@@ -389,6 +391,7 @@ function createWindow() {
 
   engine = new DesktopEngine({
     safeStorage,
+    credentialFile: desktopCredentialFile({ profileDirectory: app.getPath('userData'), legacyDirectory: CONFIG_DIR }),
     chatgptResources: chatgptResourcePaths({ packageRoot: app.getAppPath(), resourcesPath: process.resourcesPath, isPackaged: app.isPackaged }),
     // Composio keyless sign-in opens the system browser from the main process.
     openExternal: url => openExternal(url),
@@ -551,14 +554,19 @@ ipcMain.handle('engine:invoke', async (event, action, payload) => {
       const text = await current.browserHandoff(payload); clipboard.writeText(text); return { copied: true };
     }
     case CHATGPT_CONNECTION_ACTIONS.start: return current.startChatgptConnection(payload);
+    case CHATGPT_CONNECTION_ACTIONS.show: return current.chatgptBrowser?.show();
+    case CHATGPT_CONNECTION_ACTIONS.signIn: return current.chatgptBrowser?.startSignInTransfer();
     case CHATGPT_CONNECTION_ACTIONS.nativePreferences: return current.chatgptBrowser?.readNativePreferences() ?? { tunnels: {}, savedKeys: [] };
+    case CHATGPT_CONNECTION_ACTIONS.nativeSaveApps:
+      if (!current.chatgptBrowser) throw new Error(CHATGPT_PROVIDER_REQUIRED_MESSAGE);
+      return current.chatgptBrowser.saveAppPreferences(payload);
     case CHATGPT_CONNECTION_ACTIONS.nativeStart:
-      if (!current.chatgptBrowser) throw new Error('Save ChatGPT Browser as your provider first');
+      if (!current.chatgptBrowser) throw new Error(CHATGPT_PROVIDER_REQUIRED_MESSAGE);
       return current.chatgptBrowser.startNativeTools(payload);
     case CHATGPT_CONNECTION_ACTIONS.nativeStop: return current.chatgptBrowser?.stopNativeTools(payload);
     case CHATGPT_CONNECTION_ACTIONS.disconnect: await current.chatgptBrowser?.disconnect(); return true;
     case CHATGPT_CONNECTION_ACTIONS.folder:
-      if (!current.chatgptBrowser?.extensionPath) throw new Error('Save ChatGPT Browser as your provider first');
+      if (!current.chatgptBrowser?.extensionPath) throw new Error(CHATGPT_PROVIDER_REQUIRED_MESSAGE);
       return shell.openPath(current.chatgptBrowser.extensionPath);
     case CHATGPT_CONNECTION_ACTIONS.copyPairing:
       if (typeof payload?.url !== 'string') throw new Error('The pairing link is missing');
