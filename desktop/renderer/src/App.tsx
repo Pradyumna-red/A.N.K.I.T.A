@@ -319,6 +319,7 @@ export default function App() {
       models={state.models} projects={projects} defaultModel={state.settings?.model || ''} provider={state.settings?.provider}
       usage={state.selectedId ? state.usage[state.selectedId] : undefined}
       loadedSkills={state.selectedId ? state.loadedSkills[state.selectedId] : undefined}
+      subagents={state.selectedId ? state.subagents[state.selectedId] : undefined}
       onCommand={runCommand} commandsRevision={toolsRevision}
       chrome={state.chrome} sidebarOpen={sidebarOpen} reviewOpen={reviewOpen} browserRun={!browserScope && browserThreadId === state.selectedId ? browserView : null} onOpenBrowser={() => { setBrowserOpen(true); setReviewOpen(false); }} onOpenBrowserPlugins={() => runCommand(DESKTOP_ACTIONS.browser)} onToggleSidebar={() => setSidebarOpen(open => !open)} onToggleReview={() => { setReviewOpen(open => !open); setBrowserOpen(false); }} onProject={id => void assignProject(id)} onOpenProjects={() => setView('projects')}
       onSend={send} onStop={stop} onModel={model} onEdit={() => setDialog('edit')} onCreate={() => setDialog('create')} onClear={clear} onDelete={remove}

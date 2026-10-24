@@ -26,6 +26,8 @@ jobs:
         with:
           # Runtime range comes from the app's declared engine requirement.
           node-version-file: package.json
+      - name: Install declared dependencies for the shipped desktop import
+        run: npm ci
       - name: Check every skill artifact without executing contributed code
         run: node scripts/check-skills.mjs
       - name: Exercise fixtures, authoring and the verified handbook

@@ -39,6 +39,9 @@ export class ApprovalRegistry {
         routineId: entry.routineId,
         runId: entry.runId,
         expiresAt: entry.expiresAt,
+        subagentId: entry.subagentId,
+        subagentType: entry.subagentType,
+        subagentDescription: entry.subagentDescription,
       }));
   }
 

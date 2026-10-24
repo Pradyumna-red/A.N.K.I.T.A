@@ -36,6 +36,7 @@ import { pickModel, resolveProvider } from "./provider.mjs";
 import { createSession } from "./bootstrap.mjs";
 import { sanitizeMessages } from "./history.mjs";
 import { Agent } from "./agent.mjs";
+import { SUBAGENT_EVENT } from './subagents/registry.mjs';
 import { loadSkills, reloadSkills } from './skills.mjs';
 import { runLocalCommand } from './local-commands.mjs';
 import { startupProfile } from './startup-profile.mjs';
@@ -490,6 +491,10 @@ export async function main() {
   const activeProject = () => projects.active;
   const projectBlock = () => projects.promptBlock();
 
+  // The REPL is one session at a time, so a single slot is enough to attach
+  // sub-agent progress to the turn currently streaming.
+  let activeOutcome = null;
+
   const agent = new Agent({
     client,
     skillsEnabled: !opts.daemon,
@@ -499,6 +504,23 @@ export async function main() {
     project: projectBlock(),
     projectId: activeProject()?.id || null,
     mcp,
+    onSubagentEvent: event => {
+      if (activeOutcome && event.type === SUBAGENT_EVENT.end) {
+        activeOutcome.subagents.push({
+          type: event.subagentType, description: event.description, status: event.status,
+          durationMs: event.durationMs, usage: event.usage, toolsUsed: event.toolsUsed, transcript: event.transcript,
+        });
+      }
+      if (opts.json) return;
+      if (event.type === SUBAGENT_EVENT.start) {
+        term.line(c.magenta(`  ⇢ ${event.subagentType}: ${event.description}`));
+      } else if (event.type === SUBAGENT_EVENT.toolCall) {
+        term.line(c.dim(`      ${event.call?.function?.name || 'tool'}`));
+      } else if (event.type === SUBAGENT_EVENT.end) {
+        const secs = (event.durationMs / 1000).toFixed(1);
+        term.line(c.dim(`      ${event.status} · ${secs}s${event.transcript ? '' : ' · no transcript'}`));
+      }
+    },
     print: (s) => term.line(s),
     write: (s) => term.write(s),
     confirm: async (toolName, detail) => {
@@ -658,7 +680,8 @@ export async function main() {
   const runTurn = async (text) => {
     busy = true;
     const started = Date.now();
-    const outcome = { text: "", thinking: "", toolCalls: [], error: null };
+    const outcome = { text: "", thinking: "", toolCalls: [], subagents: [], error: null };
+    activeOutcome = outcome;
     const show = !opts.json;
     let spin = null;
     let renderer = null;
@@ -752,6 +775,7 @@ export async function main() {
       spin?.stop();
       renderer?.finish();
       renderer = null;
+      activeOutcome = null;
       busy = false;
       showJobNotices();
     }
@@ -1132,6 +1156,7 @@ export async function main() {
           text: outcome.text,
           ...(outcome.thinking ? { thinking: outcome.thinking } : {}),
           toolCalls: outcome.toolCalls.map(({ name, args, result }) => ({ name, args, result })),
+          ...(outcome.subagents.length ? { subagents: outcome.subagents } : {}),
           usage: agent.turnUsage,
           ...(outcome.error ? { error: outcome.error } : {}),
         })
@@ -1193,7 +1218,8 @@ export async function main() {
       client,
       skillsEnabled: false,
       tool,
-      config,
+      // Routines, briefings and alerts run unattended: no nested agents.
+      config: { ...config, subagentsEnabled: false },
       // One-shot agents for routines, briefings and alerts always carry every
       // tool: there is no session to amortise a find_tools round trip across,
       // and the briefing prompt needs github_notifications and watch every time.

@@ -33,6 +33,8 @@ export function audit(ctx = {}, record = {}) {
       ...record,
       command: record.command !== undefined ? truncate(record.command) : undefined,
       output: record.output !== undefined ? truncate(record.output, 1000) : undefined,
+      subagent: record.subagent ?? ctx.subagentId ?? undefined,
+      subagentType: record.subagentType ?? ctx.subagentType ?? undefined,
     });
     fs.appendFileSync(file, JSON.stringify(clean) + "\n", { mode: AUDIT_FILE_MODE });
     try {

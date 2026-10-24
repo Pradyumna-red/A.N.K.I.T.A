@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { BrowserSessionView, ChatMessage, Model, Project, Teammate, Routine } from '../../../shared/wire';
+import type { SubagentActivity } from '../../../shared/subagent-state.mjs';
 import type { Usage } from '../state/store';
 import { Composer } from './Composer';
 import { Icon } from './Icons';
@@ -22,11 +23,12 @@ const STARTERS = [
   { icon: 'chat', label: 'Explore an idea', text: 'Help me explore an idea: ' },
 ]; // User-editable draft starters; none starts a model request.
 
-export function ChatPane({ teammate, messages, running, models, projects, defaultModel, provider, usage, loadedSkills, chrome, sidebarOpen, reviewOpen, browserRun, onToggleSidebar, onToggleReview, onOpenBrowser, onOpenBrowserPlugins, onProject, onOpenProjects, onSend, onStop, onModel, onEdit, onCreate, onClear, onDelete, jobs, onEditJob, onWatchJob, onCommand, commandsRevision }: {
+export function ChatPane({ teammate, messages, running, models, projects, defaultModel, provider, usage, loadedSkills, chrome, sidebarOpen, reviewOpen, browserRun, onToggleSidebar, onToggleReview, onOpenBrowser, onOpenBrowserPlugins, onProject, onOpenProjects, onSend, onStop, onModel, onEdit, onCreate, onClear, onDelete, jobs, onEditJob, onWatchJob, onCommand, commandsRevision, subagents }: {
   jobs: Routine[]; onEditJob: (id?: string) => void; onWatchJob: (job: Routine) => void;
   teammate: Teammate | null; messages: ChatMessage[]; running: boolean; models: Model[]; defaultModel: string; provider?: string;
   projects: Project[]; usage?: Usage; chrome: string; sidebarOpen: boolean; reviewOpen: boolean; onToggleSidebar: () => void; onToggleReview: () => void; onProject: (id: string | null) => void; onOpenProjects: () => void;
   loadedSkills?: string[];
+  subagents?: Record<string, SubagentActivity>;
   commandsRevision: number; onCommand: (command: string) => void;
   browserRun?: BrowserSessionView | null; onOpenBrowser: () => void; onOpenBrowserPlugins?: () => void;
   onSend: (text: string, attachments?: { name: string; data: string; kind?: 'document'; images?: string[] }[]) => void; onStop: () => void; onModel: (id: string) => void;
@@ -110,7 +112,7 @@ export function ChatPane({ teammate, messages, running, models, projects, defaul
       </div>
     </div>
     <div className="chat-scroll" ref={scroll} onScroll={onScroll} aria-label={`${teammate.name} conversation`}><div className="transcript">
-       {!messages.length && !running && !pendingJobs.length ? <div className="welcome"><TeammateAvatar id={teammate.id} color={teammate.color} className="welcome-face" /><h1>What are we working on?</h1><p>Talk it through with {teammate.name}, or drop a file on their mascot.</p><div className="welcome-prompts">{STARTERS.map(starter => <button key={starter.label} onClick={() => window.dispatchEvent(new CustomEvent(COMPOSE_EVENT, { detail: { text: starter.text, append: true } }))}><Icon name={starter.icon} size={16} /><span>{starter.label}</span></button>)}</div></div> : messages.map(message => <Message key={message.id} message={message} teammate={teammate} threadId={teammate.id} streaming={running && message.id === lastAssistant && messages.at(-1)?.id === message.id} onOpenBrowserPlugins={onOpenBrowserPlugins} jobs={jobs} onEditJob={onEditJob} />)}
+       {!messages.length && !running && !pendingJobs.length ? <div className="welcome"><TeammateAvatar id={teammate.id} color={teammate.color} className="welcome-face" /><h1>What are we working on?</h1><p>Talk it through with {teammate.name}, or drop a file on their mascot.</p><div className="welcome-prompts">{STARTERS.map(starter => <button key={starter.label} onClick={() => window.dispatchEvent(new CustomEvent(COMPOSE_EVENT, { detail: { text: starter.text, append: true } }))}><Icon name={starter.icon} size={16} /><span>{starter.label}</span></button>)}</div></div> : messages.map(message => <Message key={message.id} message={message} teammate={teammate} threadId={teammate.id} streaming={running && message.id === lastAssistant && messages.at(-1)?.id === message.id} onOpenBrowserPlugins={onOpenBrowserPlugins} jobs={jobs} onEditJob={onEditJob} subagents={subagents} />)}
       {showThinking && <div className="thinking-row"><TeammateAvatar id={teammate.id} color={teammate.color} className="message-avatar" /><span className="thinking-dots"><i /><i /><i /></span><span>{teammate.name} is thinking</span></div>}
       {browserRun?.mode && browserRun.tabs.length > 0 && <BrowserRunCard view={browserRun} onOpen={onOpenBrowser} />}
       {jobs.filter(job => job.pendingApproval).map(job => <JobApprovalCard key={job.id} job={job} onEdit={onEditJob} />)}

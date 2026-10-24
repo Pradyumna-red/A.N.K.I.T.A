@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { createServer as createViteServer, transformWithEsbuild } from 'vite';
+import { createServer as createViteServer } from 'vite';
+import { build } from 'esbuild';
 import { chromium } from 'playwright';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ankita-desktop-skill-'));
@@ -118,9 +119,9 @@ test('desktop sends the whole automatic guide and reports its actual request inc
 });
 
 test('actual desktop reducer scopes guide receipts to the teammate and clears stale status', async () => {
-  const source = fs.readFileSync(new URL('../../desktop/renderer/src/state/store.ts', import.meta.url), 'utf8');
-  const compiled = await transformWithEsbuild(source, 'store.ts', { loader: 'ts', format: 'esm', target: 'es2022' });
-  const { initialState, reducer } = await import(`data:text/javascript;base64,${Buffer.from(compiled.code).toString('base64')}`);
+  const { outputFiles } = await build({ entryPoints: [fileURLToPath(new URL('../../desktop/renderer/src/state/store.ts', import.meta.url))], bundle: true,
+    write: false, format: 'esm', platform: 'neutral', target: 'es2022', logLevel: 'silent' });
+  const { initialState, reducer } = await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString('base64')}`);
   let state = initialState;
   const emit = event => { state = reducer(state, { type: 'event', event }); };
   emit({ type: 'turn-start', threadId: 'one', turnId: 'first', text: 'Browse' });

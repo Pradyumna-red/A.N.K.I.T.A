@@ -1492,3 +1492,71 @@ with exactly two posts, survived navigation to Plugins while running, exceeded
 the old token ceiling and remained enabled. Real-provider results, commands,
 artifact paths and uncovered public-site behavior are recorded in the
 [scheduled completion verification](plans/scheduled-job-completion-fixes.md).
+
+## Sub-agent discovery and context-budget verification — 2026-10-24
+
+The initial always-on delegation schema and guidance displaced screenshot pixels
+and pushed a native MCP round trip over the default context budget. Delegation
+is now discovered through `find_tools`: foreground prompts list the `subagents`
+group, while background jobs neither list nor expose it. The separate always-on
+guidance paragraph was removed. The browser screenshot/ref checks and native MCP
+round trip pass again without enlarging or weakening their fixtures.
+
+Final safety review reproduced four additional defects before the fix: a queued
+worker cancellation opened the workspace lock, symlink/case aliases bypassed it,
+pinned personal facts entered child prompts, and background discovery falsely
+reported delegation as callable. The same regressions then passed with preserved
+lock chains, canonical workspace identities, memory-disabled prompt gating and
+execution-aligned discovery.
+
+```text
+Safety regressions: RED 7/11 pass, 4 fail -> GREEN 11/11 pass
+Core suites before the final safety fixes: 295 tests; 293 pass; 2 fail
+  Both failures are the pre-existing browser-discovery budget assertions.
+  Detached-base reproduction: budget=21313, core=16422, browser group=5347.
+Remaining backend suites: 873 tests; 872 pass; 0 fail; 1 skip
+Desktop suites (serialized): 271/271 pass
+Desktop build: npm run desktop:build; exit 0; 382 modules; 10.55 s
+Chromium card check: running + failed states, expansion, tool rows; 0 page errors
+  stopped tool rows show an alert, not a success checkmark
+Live local OpenAI-compatible round trip: SUBAGENT_LIVE_OK
+  parent=3 rounds; child=2 rounds; calls=find_tools,delegate_task
+  real read_file; start/tool/delta/end events; completed envelope
+  toolsUsed=read_file; scrubbed child transcript persisted
+  delegate_task advertised after parent discovery and absent from child schemas
+```
+
+Settled-tree gate after the budget increase (2026-10-24):
+
+```text
+Full serialized suite: 1447 tests; 1443 pass; 3 fail; 1 skip; 635.1 s
+  2 failures: pre-existing browser-discovery budget assertions
+    (reproduced on detached base 6914915 without sub-agent code)
+  1 failure: jobs.test.mjs "optional execution timeout" timing flake
+    same test passed 20/20 on two immediate reruns of the whole file
+Targeted: subagents.test.mjs 13/13; tool-loading.test.mjs 18/18;
+  subagent-state.test.mjs 7/7; subagent-config.test.mjs 3/3
+Desktop build: exit 0; built in 9.19 s
+```
+
+Delegation budgets were then raised from recon-sized to implementation-sized:
+100 tool steps, 200 tool calls, 1M tokens, 30 minutes, 48 KB results, 24
+children per turn and 8 concurrent slots per conversation (clamps 400 / 500 /
+10M / 2 h / 128 KB / 64 / 16). `delegate_task` also accepts `max_steps` and
+`timeout_ms`, which can tighten but never raise the configured cap. Child
+transcripts are pruned to the newest 200 per session store, and a config test
+pins both the shipped defaults and the low/high clamps.
+
+The live model decisions were scripted; Agent requests, discovery, child tool
+execution, events, result persistence and real workspace file I/O were exercised.
+No live external provider, packaged desktop sub-agent run, non-Windows runtime,
+or unattended delegation is claimed. Parallel desktop test runs were flaky;
+the reliable serialized gate passed 271/271.
+
+PR 68's only executed check, `Skill contribution gate`, failed before reaching a
+skill assertion because the job ran the scaffold test without installing declared
+dependencies. That test imports the shipped desktop engine, which reaches
+`services/chatgpt-bridge/server.mjs` and `@modelcontextprotocol/node`. Adding
+`npm ci` to `.github/workflows/skills.yml` fixes the job. A clean-checkout
+reproduction ran `npm ci` and the exact workflow commands: 6 skill artifacts
+checked with 0 errors and 21/21 tests passed.

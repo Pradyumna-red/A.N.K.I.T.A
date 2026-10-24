@@ -21,6 +21,13 @@ undo tool; advisory skill manifests name the tools and scopes a skill touches.
 The desktop gained a searchable slash-command menu, and connecting native
 Computer Use no longer throws while building the system prompt.
 
+Delegation adds `delegate_task` with `explore`, `reviewer` and `worker` presets.
+Read-only children overlap, workers serialize on the canonical workspace path,
+and every child is isolated from memory, browser, MCP, skills and recursion.
+Children inherit cancellation, budgets and the approval gate with attribution,
+and their scrubbed transcripts live beside normal sessions. Discovery keeps the
+group hidden from background jobs, the daemon and one-shot routines.
+
 The desktop UI pass replaces the raw error toast with compact, dismissible
 notices (two-line detail plus an on-demand `Details` popover for the hint and
 technical text); IPC, scheduler, network, auth, quota, disk and permission

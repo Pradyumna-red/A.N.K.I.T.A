@@ -7,7 +7,9 @@ import { ProjectStore } from '../memory/projects.mjs';
 import { randomUUID, createHash } from 'node:crypto';
 import { personalMemoryContext, withMemoryContext } from '../memory/memory-context.mjs';
 import { warmRecall } from '../../tools/personal/recall.mjs';
-import { specs, coreSpecs, specsFor, get, isReadOnly, coreNames, categoryOfTool, CATEGORIES } from "../../tools/index.mjs";
+import { specs, coreSpecs, specsFor, get, isReadOnly, coreNames, names as toolNames, categoryOfTool, CATEGORIES } from "../../tools/index.mjs";
+import { createSubagentRuntime } from './subagents/runtime.mjs';
+import { SUBAGENT_TOOL } from './subagents/registry.mjs';
 import { redactText, configuredSecrets } from './redact.mjs';
 import { fetchWithRetry } from "./net.mjs";
 import { c, preview, short, clip } from "./ui.mjs";
@@ -242,13 +244,26 @@ export function mcpPromptLines(mcpServers = []) {
   return lines;
 }
 
-export function buildSystemPrompt(config, cwd, project = null, mcpServers = [], personal = '', skillLines = [], includeSkills = true) {
+export function buildSystemPrompt(config, cwd, project = null, mcpServers = [], personal = '', skillLines = [], includeSkills = true, catalog = null) {
   const today = new Date().toISOString().slice(0, 10);
   // The prompt states the same bound the loop enforces, so a model that is about
   // to be cut off knows to summarise rather than stall mid-investigation.
   const toolRounds = config?.maxToolSteps > 0 ? config.maxToolSteps : MAX_TOOL_STEPS;
   const shell =
     process.platform === "win32" ? "PowerShell 5.1 (so: no && chaining, use ; instead)" : "/bin/sh";
+  // catalog keeps the prompt truthful for scoped agents: without it the prompt
+  // would advertise core/deferred tools the host will refuse to execute.
+  const visible = catalog?.names ? new Set(catalog.names) : null;
+  const hidden = catalog?.exclude || null;
+  const offered = name => name !== hidden && (!visible || visible.has(name));
+  const deferTools = catalog?.deferTools !== false;
+  // A one-shot child ships every spec, so its directly available list is the
+  // whole catalog rather than the deferrable core.
+  const listedCore = (deferTools ? coreNames() : toolNames()).filter(name => offered(name) && (includeSkills || name !== 'skill'));
+  const listedGroups = CATEGORIES
+    .filter(group => !group.alwaysOn && (includeSkills || group.id !== 'skills'))
+    .map(group => ({ ...group, tools: group.tools.filter(tool => offered(tool.name)) }))
+    .filter(group => group.tools.length);
 
   return [
     `You are ${config.agentName}, a coding and personal assistant running on the user's machine.`,
@@ -259,10 +274,14 @@ export function buildSystemPrompt(config, cwd, project = null, mcpServers = [], 
     `Platform: ${process.platform} · shell: ${shell}`,
     `Today: ${today}`,
     "",
-    `You have these tools: ${coreNames().filter(name => includeSkills || name !== 'skill').join(", ")}.`,
-    "More tools are available but not loaded yet, because every schema costs context on every turn. " +
-      "Call find_tools to load them when a task needs them - they become callable straight away. Groups:",
-    ...CATEGORIES.filter(group => !group.alwaysOn && (includeSkills || group.id !== 'skills')).map((group) => `  ${group.id}: ${group.tools.map((t) => t.name).join(", ")} - ${group.summary}`),
+    `You have these tools: ${listedCore.join(", ")}.`,
+    ...(deferTools ? [
+      "More tools are available but not loaded yet, because every schema costs context on every turn. " +
+        "Call find_tools to load them when a task needs them - they become callable straight away. Groups:",
+      ...listedGroups.map((group) => `  ${group.id}: ${group.tools.map((t) => t.name).join(", ")} - ${group.summary}`),
+    ] : [
+      "Every tool available to you is listed above; discovery is not needed.",
+    ]),
     "For anything time-sensitive or factual about the world, load `web` with find_tools and search " +
       "rather than guessing.",
     ...mcpPromptLines(mcpServers),
@@ -367,6 +386,15 @@ export class Agent {
     // Optional { client, model }: the primary handles chat and the first tool
     // decision; once a turn uses a tool, this model runs the rest of the loop.
     tool = null,
+    // Sub-agent scope: a child runs one level deep, may be read-only, and must
+    // not read personal memory or delegate again.
+    depth = 0,
+    readOnly = false,
+    memoryEnabled = true,
+    systemSuffix = '',
+    approvalContext = null,
+    onSubagentEvent = null,
+    subagentTransform = null,
   }) {
     this.client = client;
     this.allowedTools = allowedTools;
@@ -408,6 +436,13 @@ export class Agent {
     this.deferTools = deferTools !== false;
     this.skillsEnabled = skillsEnabled !== false;
     this.disabledSkills = new Set(disabledSkills);
+    this.depth = Math.max(0, Math.floor(Number(depth) || 0));
+    this.readOnly = readOnly === true;
+    this.memoryEnabled = memoryEnabled !== false;
+    this.systemSuffix = typeof systemSuffix === 'string' ? systemSuffix : '';
+    this.approvalContext = approvalContext && typeof approvalContext === 'object' ? approvalContext : null;
+    this.onSubagentEvent = onSubagentEvent;
+    this.subagentTransform = typeof subagentTransform === 'function' ? subagentTransform : null;
     // Tool discovery/use in this turn, separate from the session's persistent tool catalogue.
     this.activeSkillTools = new Set();
     this.loadedAutomaticSkills = new Set(); // Audit only bodies actually rendered in a turn's prompt.
@@ -424,9 +459,40 @@ export class Agent {
     const initialSkills = this.availableSkills();
     this.skillLines = skillPromptLines(initialSkills);
     this.messages = [
-      { role: "system", content: buildSystemPrompt(config, this.cwd, this.project, this.mcpSummaries(), this.personalBlock(), this.skillLines, initialSkills.length > 0) },
+      { role: "system", content: this.systemText() },
     ];
-    if (this.useTools) warmRecallSafely({ config });
+    if (this.useTools && this.memoryEnabled) warmRecallSafely({ config });
+  }
+
+  /** System prompt with the tool catalog actually callable by this agent. */
+  systemText() {
+    const base = buildSystemPrompt(this.config, this.cwd, this.project, this.mcpSummaries(), this.personalBlock(), this.skillLines,
+      this.availableSkills().length > 0, {
+        names: this.allowedTools ? [...this.allowedTools] : null,
+        deferTools: this.deferTools,
+        exclude: this.canDelegate() ? null : SUBAGENT_TOOL,
+      });
+    return this.systemSuffix ? `${base}\n\n${this.systemSuffix}` : base;
+  }
+
+  canDelegate() {
+    // Background jobs stay single-agent: a scheduled run has no user watching
+    // progress and its tool budget is already bounded end to end.
+    return this.useTools === true && !this.readOnly && this.config?.subagentsEnabled !== false &&
+      !this.config?.backgroundJob &&
+      (Number(this.depth) || 0) < (this.config?.maxSubagentDepth ?? 1);
+  }
+
+  subagentRuntime() {
+    return this._subagents ??= createSubagentRuntime({
+      parent: this,
+      createAgent: options => new Agent(options),
+      toolNames: toolNames(),
+    });
+  }
+
+  emitSubagentEvent(event) {
+    try { this.onSubagentEvent?.(event); } catch {}
   }
 
   clear() {
@@ -434,20 +500,14 @@ export class Agent {
     this.loadedAutomaticSkills.clear();
     this.skillLines = skillPromptLines(this.availableSkills());
     this.messages = [
-      {
-        role: "system",
-        content: buildSystemPrompt(this.config, this.cwd, this.project, this.mcpSummaries(), this.personalBlock(), this.skillLines, this.availableSkills().length > 0),
-      },
+      { role: "system", content: this.systemText() },
     ];
   }
 
   rebase() {
     this.cwd = this.workspacePath || process.cwd();
     this.skillLines = skillPromptLines(this.availableSkills(), this.activeSkillTools);
-    this.messages[0] = {
-      role: "system",
-      content: buildSystemPrompt(this.config, this.cwd, this.project, this.mcpSummaries(), this.personalBlock(), this.skillLines, this.availableSkills().length > 0),
-    };
+    this.messages[0] = { role: "system", content: this.systemText() };
   }
 
   /**
@@ -512,6 +572,7 @@ export class Agent {
     let core = this.deferTools ? coreSpecs : specs;
     if (this.config?.desktopBackgroundJobs && this.deferTools) core = [...core, ...specsFor(['schedule'])];
     if (!this.availableSkills().length) core = core.filter(spec => spec.function?.name !== 'skill');
+    if (!this.canDelegate()) core = core.filter(spec => spec.function?.name !== SUBAGENT_TOOL);
     let optional = [];
 
     if (this.deferTools && names.length) {
@@ -525,6 +586,9 @@ export class Agent {
       }
       optional = [...groups].map(([id, groupSpecs]) => ({ id, specs: groupSpecs }));
     }
+    if (!this.canDelegate()) optional = optional
+      .map(group => ({ ...group, specs: group.specs.filter(spec => spec.function?.name !== SUBAGENT_TOOL) }))
+      .filter(group => group.specs.length);
 
     if (!completionWorker(this.config) && this.searchesThisTurn >= MAX_WEB_SEARCHES_PER_TURN) {
       const keep = (spec) => spec.function?.name !== 'web_search';
@@ -611,12 +675,13 @@ export class Agent {
       : '';
     this.messages[0] = {
       role: "system",
-      content: buildSystemPrompt(this.config, this.cwd, this.project, this.mcpSummaries(), this.personalBlock(), this.skillLines, this.availableSkills().length > 0) + checklist + islandStyle,
+      content: this.systemText() + checklist + islandStyle,
     };
     return this;
   }
 
   personalBlock() {
+    if (!this.memoryEnabled) return '';
     try {
       const profileFile = this.toolContext?.profileFile || PROFILE_FILE;
       const stat = fs.statSync(profileFile);
@@ -896,6 +961,8 @@ export class Agent {
         }
         return { ...this.toolContext, cwd: this.cwd, workspacePath: this.workspacePath, config: this.config,
           ui: this.ui, state: this.state, executionState, allowedTools: this.allowedTools, backgroundToolScope: Boolean(this.allowedTools),
+          readOnly: this.readOnly || undefined,
+          runSubagent: this.canDelegate() ? (args, callCtx) => this.subagentRuntime().run(args, callCtx) : null,
           signal: this.abort?.signal, autoApprove: this.autoApprove,
           skillsInteractive: this.skillsEnabled, skillsEnabled: this.availableSkills().length > 0,
           disabledSkills: this.disabledSkills, projectId: this.projectId, mcp: this.mcp,
@@ -917,7 +984,9 @@ export class Agent {
           },
         };
       },
-      authorize: (name, detail) => this.confirm?.(name, detail),
+      authorize: (name, detail) => this.approvalContext
+        ? this.confirm?.(name, detail, this.approvalContext)
+        : this.confirm?.(name, detail),
     });
     return this._toolHost;
   }
@@ -1007,6 +1076,7 @@ export class Agent {
 
   async sendRequest(text, options = {}) {
     this.abort = new AbortController();
+    if (this.canDelegate()) this.subagentRuntime().beginTurn();
     this.requestId = randomUUID();
     this.requestStarted = Date.now();
     this.totalToolCalls = 0;
@@ -1024,7 +1094,9 @@ export class Agent {
     this.browserEvidence = null;
     this.browserProgress = null;
     this.turnProjects = new Set(this.projectId ? [this.projectId] : []);
-    this.memoryContext = this.useTools ? await personalMemoryContext(text, this.config, { ...this.toolContext, signal: this.abort.signal }) : null;
+    this.memoryContext = this.useTools && this.memoryEnabled
+      ? await personalMemoryContext(text, this.config, { ...this.toolContext, signal: this.abort.signal })
+      : null;
     if (this.abort.signal.aborted) throw this.abort.signal.reason;
     if (this.memoryContext) {
       try { options.onToolCall?.(this.memoryContext.call); } catch {}

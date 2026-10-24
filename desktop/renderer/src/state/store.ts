@@ -1,5 +1,7 @@
 import type { ChatMessage, EngineEvent, Model, Teammate, Routine } from '../../../shared/wire';
 import type { Compat } from '../../../shared/version.mjs';
+import type { SubagentState } from '../../../shared/subagent-state.mjs';
+import { clearThreadSubagents, reduceSubagents } from '../../../shared/subagent-state.mjs';
 
 export type Approval = Extract<EngineEvent, { type: 'approval-request' }>;
 export type Usage = { prompt_tokens: number; completion_tokens: number; estimated_cost: number };
@@ -16,6 +18,7 @@ export type State = {
   loadedSkills: Record<string, string[]>;
   unread: Record<string, boolean>;
   usage: Record<string, Usage>;
+  subagents: SubagentState;
   approvals: Approval[];
   deviceCode: { user_code: string; verification_uri: string } | null;
   error: string | null;
@@ -26,7 +29,7 @@ export type State = {
 export const initialState: State = {
   jobs: [],
   phase: 'starting', chrome: 'custom', teammates: [], models: [], settings: null,
-  selectedId: null, threads: {}, running: {}, loadedSkills: {}, unread: {}, usage: {}, approvals: [],
+  selectedId: null, threads: {}, running: {}, loadedSkills: {}, unread: {}, usage: {}, subagents: {}, approvals: [],
   deviceCode: null, error: null, compat: null, compatDismissed: false,
 };
 
@@ -91,6 +94,7 @@ export function reducer(state: State, action: Action): State {
     ...state, threads: { ...state.threads, [event.threadId]: [] },
     loadedSkills: { ...state.loadedSkills, [event.threadId]: [] },
     usage: { ...state.usage, [event.threadId]: { prompt_tokens: 0, completion_tokens: 0, estimated_cost: 0 } },
+    subagents: clearThreadSubagents(state.subagents, event.threadId),
   };
   if (event.type === 'turn-start') return {
     ...state,
@@ -145,5 +149,6 @@ export function reducer(state: State, action: Action): State {
   };
   if (event.type === 'tool-result') return patchThread(state, event.threadId, messages => messages.map(message =>
     message.role === 'tool' && message.callId === event.callId ? { ...message, result: event.text, isError: event.isError, endedAt: Date.now() } : message));
+  if (event.type.startsWith('subagent-')) return { ...state, subagents: reduceSubagents(state.subagents, event) };
   return state;
 }
