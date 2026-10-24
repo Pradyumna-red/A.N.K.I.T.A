@@ -14,6 +14,7 @@ export function ApprovalDialog({ approval, onAnswer }: { approval: Approval; onA
     <div className="modal-symbol"><Icon name="alert" size={23}/></div>
     <h2 id="approval-title">Allow this action?</h2>
     <p><strong>{approval.toolName}</strong> needs your approval before it runs.</p>
+    {approval.subagentType && <p className="approval-subagent"><Icon name="cube" size={14} /> Requested by a {approval.subagentType} sub-agent{approval.subagentDescription ? `: ${approval.subagentDescription}` : ''}</p>}
     <pre className="approval-detail">{approval.detail}</pre>
     <div className="approval-actions"><button ref={deny} className="button-quiet" onClick={() => onAnswer('no')}>Deny</button><button className="button-secondary" onClick={() => onAnswer('yes')}>Allow once</button><button className="button-primary" onClick={() => onAnswer('always')}>Always allow</button></div>
   </div></div>;

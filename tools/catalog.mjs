@@ -12,6 +12,7 @@ import * as composio from "./connectors/composio.mjs";
 import * as remember from "./personal/remember.mjs";
 import * as recall from "./personal/recall.mjs";
 import * as skill from './skills/skill.mjs';
+import * as delegateTask from './delegate-task.mjs';
 import * as git from './git/git.mjs';
 import * as portStatus from './process/port-status.mjs';
 import * as killProcess from './process/kill-process.mjs';
@@ -55,6 +56,12 @@ export const CATEGORIES = [
     summary: 'built-in workflow instructions loaded on demand',
     keywords: ['skill', 'workflow', 'procedure'],
     tools: [skill],
+  },
+  {
+    id: 'subagents',
+    summary: 'delegate a self-contained task to an explore, reviewer or worker sub-agent',
+    keywords: ['delegate', 'subagent', 'sub-agent', 'parallel agents', 'child agent'],
+    tools: [delegateTask],
   },
   {
     id: 'browser',

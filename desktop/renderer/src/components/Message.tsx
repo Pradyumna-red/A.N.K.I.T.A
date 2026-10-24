@@ -2,8 +2,11 @@ import { memo, useEffect, useState } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatMessage, Teammate, Routine } from '../../../shared/wire';
+import type { SubagentActivity } from '../../../shared/subagent-state.mjs';
+import { activityFromReceipt } from '../../../shared/subagent-state.mjs';
 import { formatAssistantMarkdown } from '../../../shared/assistant-markdown.mjs';
 import { ToolCallCard } from './ToolCallCard';
+import { SubagentCard } from './SubagentCard';
 import { ThinkingPanel } from './ThinkingPanel';
 import { CopyButton } from './CopyButton';
 import { Icon } from './Icons';
@@ -64,8 +67,12 @@ function WorkspaceImage({ src, alt, threadId }: { src?: string; alt?: string; th
   return <img src={defaultUrlTransform(src)} alt={alt || ''} loading="lazy" referrerPolicy="no-referrer" />;
 }
 
-export function Message({ message, teammate, threadId, streaming, onOpenBrowserPlugins, jobs, onEditJob }: { message: ChatMessage; teammate: Teammate; threadId: string; streaming: boolean; onOpenBrowserPlugins?: () => void; jobs?: Routine[]; onEditJob?: (id: string) => void }) {
+export function Message({ message, teammate, threadId, streaming, onOpenBrowserPlugins, jobs, onEditJob, subagents }: { message: ChatMessage; teammate: Teammate; threadId: string; streaming: boolean; onOpenBrowserPlugins?: () => void; jobs?: Routine[]; onEditJob?: (id: string) => void; subagents?: Record<string, SubagentActivity> }) {
   if (message.role === 'tool') {
+    if (message.name === 'delegate_task') {
+      const activity = subagents?.[message.callId] || activityFromReceipt(message.result);
+      if (activity) return <SubagentCard activity={activity} />;
+    }
     if (message.name === 'schedule' && !message.isError && onEditJob) {
       try { const receipt = JSON.parse(message.result); if (receipt.job?.id && receipt.job?.name) { const current = jobs?.find(job => job.id === receipt.job.id); return <ScheduledTaskCard job={current || receipt.job} removed={!current && receipt.action === 'remove'} onOpen={onEditJob} />; } } catch {}
     }

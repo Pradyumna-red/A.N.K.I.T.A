@@ -171,7 +171,8 @@ export class Daemon {
       client: this.client,
       skillsEnabled: false,
       tool: this.tool,
-      config: this.config,
+      // Telegram DMs cannot surface nested-agent progress or approvals.
+      config: { ...this.config, subagentsEnabled: false },
       journal: turn => recordTurn(turn, { timeZone: this.config.timeZone }),
       // A DM cannot answer a terminal prompt, so the question is forwarded to
       // Telegram and the turn parks until you reply. Read-only tools never

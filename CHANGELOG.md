@@ -31,6 +31,15 @@ continuously updated narrative lives in [docs/reference/changelog.md](docs/refer
   model, project, skill and navigation actions without starting work on a bare
   `/`, with draft preservation and keyboard/IME handling. See
   `docs/findings/desktop-slash-commands.md`.
+- **Sub-agents.** `delegate_task` hands a self-contained brief to an `explore`,
+  `reviewer` or `worker` child that runs its own tool loop and returns one
+  capped result envelope. Read-only children overlap through the existing
+  read-only batch; workers serialize per canonical workspace path. Children are
+  isolated (no memory, browser, MCP, skills, scheduling or recursion), inherit
+  the approval gate with attribution, inherit cancellation and budgets, and
+  write scrubbed `subagent-<id>.json` transcripts. Delegation is discovered
+  through `find_tools` and is absent from background jobs, the daemon and
+  one-shot routines. See `docs/subagents.md`.
 
 ### Fixed
 

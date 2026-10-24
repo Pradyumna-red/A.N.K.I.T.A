@@ -60,6 +60,16 @@ export type ChatMessage =
   | { id: string; role: 'user' | 'assistant'; content: string; job?: JobReceipt; reasoning?: string; attachments?: { name: string; image?: boolean }[] }
   | { id: string; role: 'tool'; callId: string; name: string; args: unknown; result: string; isError: boolean; startedAt?: number; endedAt?: number; hidden?: boolean };
 
+export type SubagentUsage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; estimated_cost?: number };
+export type SubagentCall = { id: string; function?: { name?: string; arguments?: string } };
+export type SubagentEvent = (
+  | { type: 'subagent-start'; threadId: string; turnId?: string | null; subagentId: string; parentCallId: string | null; subagentType: string; description: string; prompt?: string; depth?: number }
+  | { type: 'subagent-delta'; threadId: string; turnId?: string | null; subagentId: string; parentCallId: string | null; text: string }
+  | { type: 'subagent-tool-call'; threadId: string; turnId?: string | null; subagentId: string; parentCallId: string | null; call: SubagentCall }
+  | { type: 'subagent-tool-result'; threadId: string; turnId?: string | null; subagentId: string; parentCallId: string | null; call: SubagentCall; result: string }
+  | { type: 'subagent-end'; threadId: string; turnId?: string | null; subagentId: string; parentCallId: string | null; subagentType?: string; description?: string; status: string; summary?: string; usage?: SubagentUsage | null; durationMs?: number; transcript?: string | null; toolsUsed?: string[]; depth?: number }
+);
+
 export type MenuCommand = 'new-teammate' | 'find' | 'toggle-sidebar' | 'settings' | 'about';
 
 export type IslandAction = 'show-main' | 'tuck' | 'petit' | 'home' | 'home-expanded' | 'home-chat' | 'focus-on' | 'focus-off';
@@ -108,9 +118,10 @@ export type EngineEvent = (
   | { type: 'tool-call'; threadId: string; callId: string; name: string; args: unknown }
   | { type: 'tool-result'; threadId: string; callId: string; text: string; isError: boolean }
   | { type: 'usage'; threadId: string; prompt_tokens?: number; completion_tokens?: number; estimated_cost?: number }
-  | { type: 'approval-request'; requestId: string; threadId: string; toolName: string; detail: string; routineId?: string; runId?: string; expiresAt?: string }
+  | { type: 'approval-request'; requestId: string; threadId: string; toolName: string; detail: string; routineId?: string; runId?: string; expiresAt?: string; subagentId?: string; subagentType?: string; subagentDescription?: string }
   | { type: 'thread-cleared'; threadId: string }
   | { type: 'error'; threadId: string | null; message: string }
+  | SubagentEvent
 ) & { sequence?: number };
 
 export type CompanionCaptureItem = { id: string; ticketId: string; threadId: string; surface: 'main' | 'island'; attachment: {name: string; image: boolean; data: string} };

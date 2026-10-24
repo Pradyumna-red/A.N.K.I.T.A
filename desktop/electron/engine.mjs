@@ -318,6 +318,7 @@ export class DesktopEngine {
     this.reviewChanges = new Map();
     this.pendingFileEdits = new Map();
     this.turns = new Map();
+    this.turnIds = new Map();
     this.approvals = new ApprovalRegistry(event => this.emit({ type: 'approval-request', ...event }));
     this.secureStore = new SecureStore({ file: credentialFile, safeStorage });
     this.secretHistory = new SecretHistory(this.secureStore);
@@ -1002,7 +1003,11 @@ export class DesktopEngine {
       skillsEnabled: true,
       disabledSkills: this.desktopSettings.data.disabledSkills || [],
       journal: turn => recordTurn(turn, { timeZone: config.timeZone, transform: this.secretHistory.clean }),
-      confirm: (name, detail) => this.approvals.request(id, name, detail),
+      confirm: (name, detail, metadata) => this.approvals.request(id, name, detail, metadata),
+      // Child prompts, results and summaries reach the renderer and the channel
+      // bridge, so scrub them exactly like parent output before emitting.
+      onSubagentEvent: event => this.emit(this.secretHistory.clean({ ...event, threadId: id, turnId: this.turnIds?.get(id) || null })),
+      subagentTransform: value => this.secretHistory?.clean ? this.secretHistory.clean(value) : value,
       print: () => {}, write: () => {},
     });
     agent.model = item.model && this.models.some(model => model.id === item.model) ? item.model : this.model;
@@ -1028,6 +1033,7 @@ export class DesktopEngine {
     const files = attachmentPayload(attachments, { contextWindow: agent.contextWindow || this.config.contextWindow });
     if (!prompt && !files.length) throw new Error('Write a message or attach a file first');
     const turnId = randomUUID();
+    this.turnIds.set(id, turnId);
     this.emit({ type: 'turn-start', threadId: id, turnId, model: agent.model, text: this.secretHistory.clean(prompt), attachments: files.map(file => ({ name: file.name, image: Boolean(file.dataUrl) })) });
     let currentMessageId = null;
     const callbacks = {
@@ -1090,6 +1096,7 @@ export class DesktopEngine {
       try { agent.refreshPrompt(); } catch { /* next turn rebuilds it anyway */ }
       saveSession(this.sessionFile(id), { savedAt: new Date().toISOString(), model: agent.model, messages: agent.messages, todos: agent.state?.todos || [], projectId: agent.projectId, journaled: agent.journalComplete }, { transform: this.secretHistory.clean });
       this.turns.delete(id);
+      this.turnIds.delete(id);
       this.approvals.cancelThread(id);
       this.credentialRequests.cancelThread(id);
       this.browserManager.credentials?.clear?.(id);

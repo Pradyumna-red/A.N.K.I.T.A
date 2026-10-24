@@ -2,6 +2,7 @@ import { CATEGORIES, CATEGORIES as ALL, findCategory } from "./catalog.mjs";
 import { managedMcpSummaries } from '../src/integrations/browser-routing.mjs';
 import { focusAllows, setToolFocus, BROWSER_DISCOVERY_GUIDANCE } from '../src/core/tool-focus.mjs';
 import { loadSkills } from '../src/core/skills.mjs';
+import { SUBAGENT_TOOL } from '../src/core/subagents/registry.mjs';
 
 const SKILL_LIST_LIMIT = 50; // Count/skills: bounds discovery output for large custom roots.
 const SKILL_DESCRIPTION_CHARS = 160; // Characters/description; full instructions stay behind the skill tool.
@@ -118,7 +119,10 @@ export function run(args = {}, ctx = {}) {
   const set = activated(ctx.state);
   const query = String(args.query ?? "").trim();
   const skillsEnabled = ctx.skillsEnabled !== false;
-  const allowed = tool => !ctx.toolAvailability || ctx.toolAvailability.has(tool); // Optional host-supplied callable interface set; ordinary API discovery retains its existing behavior.
+  // Discovery must agree with execution: background and child agents have no
+  // runSubagent host, so they must not be told delegation is now callable.
+  const allowed = tool => (!ctx.toolAvailability || ctx.toolAvailability.has(tool)) &&
+    (tool !== SUBAGENT_TOOL || typeof ctx.runSubagent === 'function');
   const categories = CATEGORIES.filter(category => (skillsEnabled || category.id !== 'skills') && category.tools.some(tool => allowed(tool.name)));
   // Only held-back servers need loading; a small one is already in the request.
   const connected = ctx.mcp?.summaries() || [];

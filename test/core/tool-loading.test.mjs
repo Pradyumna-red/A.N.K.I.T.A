@@ -88,7 +88,14 @@ test('a query matching nothing returns the catalogue instead of guessing', () =>
   const state = { activatedTools: new Set() };
   const out = findTools.run({ query: 'zzz completely unrelated' }, { state });
   assert.match(out, /Nothing matched/);
-  for (const c of CATEGORIES) assert.match(out, new RegExp(c.id), `lists ${c.id}`);
+  // Discovery must agree with execution: without a sub-agent host the group is
+  // neither listed nor loadable, so the model is never told delegation exists.
+  assert.doesNotMatch(out, /subagents/, 'delegation is hidden without a sub-agent host');
+  const hosted = findTools.run(
+    { query: 'zzz completely unrelated' },
+    { state: { activatedTools: new Set() }, runSubagent: () => {} },
+  );
+  for (const c of CATEGORIES) assert.match(hosted, new RegExp(c.id), `lists ${c.id}`);
   assert.equal(state.activatedTools.size, 0, 'nothing was activated on a miss');
 });
 

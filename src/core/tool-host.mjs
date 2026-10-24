@@ -20,6 +20,7 @@ import { TOOL_RESULT_MODE, NATIVE_TOOL_SURFACES } from '../integrations/chatgpt-
 import { c, preview, short, clip } from './ui.mjs';
 import { renderDiff } from '../../tools/shared/_diff.mjs';
 import { name as TOOL_DISCOVERY_NAME } from '../../tools/find-tools.mjs';
+import { SUBAGENT_TOOL } from './subagents/registry.mjs';
 
 export const TOOL_UI = { ...c, preview, short, clip };
 TOOL_UI.diff = (oldText, newText, opts = {}) => renderDiff(oldText, newText, { ui: TOOL_UI, ...opts });
@@ -89,6 +90,7 @@ export class ToolHost {
     const local = specs.filter(spec => !NATIVE_CONNECTION_MANAGEMENT_TOOLS.has(spec.function.name) && (spec.function.name === TOOL_DISCOVERY_NAME || (surface !== NATIVE_TOOL_SURFACES.plugins &&
       (surface === NATIVE_TOOL_SURFACES.desktop ? spec.function.name === 'browser' : spec.function.name !== 'browser'))) &&
       (!ctx.allowedTools || ctx.allowedTools.has(spec.function.name)) &&
+      (spec.function.name !== SUBAGENT_TOOL || Boolean(ctx.runSubagent)) &&
       (!ctx.readOnly || isReadOnly(spec.function.name, {}, ctx))).map(spec => ({
       name: spec.function.name, description: spec.function.description, inputSchema: spec.function.parameters,
       annotations: { readOnlyHint: isReadOnly(spec.function.name, {}, ctx) },
@@ -134,7 +136,7 @@ export class ToolHost {
     const combined = AbortSignal.any([this.controller.signal, signal, base.signal].filter(Boolean));
     const ctx = { ...base, config, state: base.state ?? { activatedTools: new Set() }, signal: combined, ui: base.ui ?? TOOL_UI,
       width: base.width ?? process.stdout.columns ?? DEFAULT_OUTPUT_COLUMNS,
-      browserCallId: call.id, mcp: base.mcp ?? this.mcp };
+      browserCallId: call.id, callId: call.id, mcp: base.mcp ?? this.mcp };
     this.executedContext = ctx;
     const budget = config.maxToolChars > 0 ? config.maxToolChars : DEFAULT_TOOL_OUTPUT_BYTES;
     if (combined.aborted) return textResult(CANCELLED);
