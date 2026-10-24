@@ -1,6 +1,11 @@
 import { CATEGORIES, CATEGORIES as ALL, findCategory } from "./catalog.mjs";
 import { managedMcpSummaries } from '../src/integrations/browser-routing.mjs';
 import { focusAllows, setToolFocus, BROWSER_DISCOVERY_GUIDANCE } from '../src/core/tool-focus.mjs';
+import { loadSkills } from '../src/core/skills.mjs';
+
+const SKILL_LIST_LIMIT = 50; // Count/skills: bounds discovery output for large custom roots.
+const SKILL_DESCRIPTION_CHARS = 160; // Characters/description; full instructions stay behind the skill tool.
+const SKILL_OUTPUT_CHARS = 4000; // Characters/skill block: keeps discovery within one bounded tool result.
 
 export const name = "find_tools";
 export const description =
@@ -72,6 +77,22 @@ export function matchMcpServers(query, servers = []) {
       return toolWords.some((w) => asked.has(w));
     })
     .map((s) => s.id);
+}
+
+/** Installed skill names/descriptions make name-based selection possible without guessing. */
+function skillCatalogue(ctx) {
+  if (ctx.skillsEnabled === false) return '';
+  const disabled = ctx.disabledSkills;
+  const skills = loadSkills().filter(skill => !disabled?.has?.(skill.name) && !disabled?.includes?.(skill.name));
+  const lines = [];
+  let used = 0;
+  for (const skill of skills.slice(0, SKILL_LIST_LIMIT)) {
+    const line = `  ${skill.name}: ${skill.description.slice(0, SKILL_DESCRIPTION_CHARS)}`;
+    if (used + line.length + 1 > SKILL_OUTPUT_CHARS) break;
+    used += line.length + 1;
+    lines.push(line);
+  }
+  return lines.length ? `\nInstalled skills (call skill with a name):\n${lines.join('\n')}` : '';
 }
 
 function catalogue(mcpServers = [], skillsEnabled = true, categories = CATEGORIES) {
@@ -184,6 +205,7 @@ export function run(args = {}, ctx = {}) {
     (mcpTools.length ? `\nNow callable: ${mcpTools.join(", ")}.` : "") +
     (already.length && !loaded.length && !serversLoaded.length
       ? `\nAlready loaded: ${already.join(", ")}.`
-      : "")
+      : "") +
+    (matched.includes('skills') ? skillCatalogue(ctx) : '')
   );
 }

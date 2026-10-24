@@ -63,6 +63,18 @@ test('a matching query loads the whole family', () => {
   assert.deepEqual([...state.activatedTools].sort(), ['scrape', 'web_fetch', 'web_search']);
 });
 
+test('find_tools(query="skills") lists installed skill names so selection needs no guessing', () => {
+  const state = { activatedTools: new Set() };
+  const out = findTools.run({ query: 'skills' }, { state });
+  assert.match(out, /Installed skills \(call skill with a name\):/);
+  assert.match(out, /ankita-dev:/);
+  assert.match(out, /commit-review:/);
+  const disabled = findTools.run({ query: 'skills' }, { state: { activatedTools: new Set() }, skillsEnabled: false });
+  assert.doesNotMatch(disabled, /Installed skills/);
+  const hidden = findTools.run({ query: 'skills' }, { state: { activatedTools: new Set() }, disabledSkills: new Set(['commit-review']) });
+  assert.doesNotMatch(hidden, /commit-review:/);
+});
+
 test('matching works per category and by tool name', () => {
   assert.deepEqual(findTools.matchCategories('remind me every morning'), ['automation']);
   assert.deepEqual(findTools.matchCategories('where does the project stand'), ['project']);
