@@ -1552,3 +1552,11 @@ execution, events, result persistence and real workspace file I/O were exercised
 No live external provider, packaged desktop sub-agent run, non-Windows runtime,
 or unattended delegation is claimed. Parallel desktop test runs were flaky;
 the reliable serialized gate passed 271/271.
+
+PR 68's only executed check, `Skill contribution gate`, failed before reaching a
+skill assertion because the job ran the scaffold test without installing declared
+dependencies. That test imports the shipped desktop engine, which reaches
+`services/chatgpt-bridge/server.mjs` and `@modelcontextprotocol/node`. Adding
+`npm ci` to `.github/workflows/skills.yml` fixes the job. A clean-checkout
+reproduction ran `npm ci` and the exact workflow commands: 6 skill artifacts
+checked with 0 errors and 21/21 tests passed.
