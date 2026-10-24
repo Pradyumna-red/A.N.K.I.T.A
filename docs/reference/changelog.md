@@ -7,7 +7,22 @@ the tree but not yet packaged.
 
 ## Unreleased
 
-No unreleased changes.
+### Managed browser, safety and desktop polish
+
+ChatGPT work now offers two transports: an app-owned compact Electron window
+with saved sign-in, and the existing Chrome companion with automatic local
+discovery and provisioning. Both share one Send, Stop and receipt contract; new
+chats are adopted by exact receipt, teammates keep separate remembered chats,
+and native app identity is proven by served requests.
+
+Destructive file changes keep per-path backups with a scrubbed audit log and an
+undo tool; advisory skill manifests name the tools and scopes a skill touches.
+`find_tools(query="skills")` lists installed skills instead of only the reader.
+The desktop gained a searchable slash-command menu, and connecting native
+Computer Use no longer throws while building the system prompt.
+
+Hosted ChatGPT sign-in, a signed installer and packaged-device round trips remain
+open verification gates.
 
 ## 2.6.0 — 2026-10-14
 

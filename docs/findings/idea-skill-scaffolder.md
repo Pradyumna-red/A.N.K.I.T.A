@@ -44,3 +44,34 @@ also covers legacy registry preservation, sequential idempotence, ignoring parti
 temporary records, and rejecting malformed completed records without hiding bundled
 skills. The storage failure repro uses a file occupying the records directory;
 permission-denied and device failure paths have not been separately injected.
+
+### Published-app audit, 2026-10-22
+
+The published 2.6.0 Windows executable was exercised in a disposable profile.
+Two real CLI installations, `audit-older-skill` and `audit-new-skill`, registered
+an external folder. One file's modification time was moved back a week. The
+packaged app listed both alongside all six bundled skills, delivered all eight
+complete instruction bodies through its real skill tool into nine captured HTTP
+model requests, and found the same catalogue after a full app restart.
+The model endpoint was a controlled local fixture, not a remote AI choosing
+skills independently. The native Core tool host also read the new skill by name.
+The normal user profile was unchanged; temporary profiles and processes were removed.
+
+Trace: `catalogSize=8 modelRequests=9 completeSkillBodiesInRequests=8`
+and `nativeCoreReadNewSkill=true restoredAfterAppRestart=true`.
+The separate desktop browser test passed with
+`modelRequests=4 guideRequests=3 realFieldReadBack=true` and a visible renderer
+receipt that cleared on the next turn. The root-registration suite passed 10/10
+and desktop/fixture/contribution checks passed 11/11 in the release worktree.
+
+One remaining discovery gap: native `find_tools(query="skills")` advertises the
+skill reader but does not enumerate installed skill names/descriptions. Explicit
+reads work; automatic skill selection in hosted ChatGPT is not established.
+The browser provider forwards the user's prompt without the API Agent's skill
+catalogue or automatic instruction insertion. No change to that behavior was made.
+
+The current primary checkout's focused suite was 31/32: the desktop import in
+the custom-root test failed because its installed dependencies lack
+`@modelcontextprotocol/node`. The same root suite passed in the release worktree,
+and the actual published executable passed the round trip above. No dependency
+installation or application-source edit was made during this audit.

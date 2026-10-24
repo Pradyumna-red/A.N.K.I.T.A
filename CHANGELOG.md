@@ -9,12 +9,38 @@ continuously updated narrative lives in [docs/reference/changelog.md](docs/refer
 
 ### Added
 
+- **Managed ChatGPT browser.** Settings offers both CoS-style modes: a built-in
+  compact Electron window with saved sign-in and automatic internal connection,
+  or the existing Chrome companion with automatic local discovery and token
+  provisioning instead of a copied pairing link. A new chat is adopted only by
+  its exact first receipt, each teammate remembers its own chat, app identity is
+  proven by served native requests, and both modes share one Send, Stop and
+  receipt contract. See
+  `docs/superpowers/plans/2026-10-23-managed-chatgpt-browser.md`.
 - **Trust & safety batch (Ankita ideas #8).** Undo for destructive actions via
   `.ankita_backups` + `restore_file`, size-aware delete/move previews,
   append-only scrubbed audit log (`.ankita_backups/audit.jsonl`, owner-only),
-  and skill permission manifests (`allowed-tools`, `touches` with
-  `isToolAllowedForSkill` gate). Verified by
-  `test/tools/trust-safety.test.mjs` (9 tests).
+  and advisory skill permission manifests (`allowed-tools`, `touches`) parsed,
+  validated and shown in the skill catalogue; tool approvals remain the
+  enforcement boundary. `move_file` also keeps an undo copy of the source.
+  Verified by `test/tools/trust-safety.test.mjs` (11 tests).
+- **Skill discovery in `find_tools`.** `find_tools(query="skills")` now lists
+  installed skill names and descriptions, bounded and honoring disabled skills
+  and skills-off mode.
+- **Interactive desktop slash commands.** A searchable command menu covers
+  model, project, skill and navigation actions without starting work on a bare
+  `/`, with draft preservation and keyboard/IME handling. See
+  `docs/findings/desktop-slash-commands.md`.
+
+### Fixed
+
+- **Backups no longer share filename prefixes.** Each original path has its own
+  backup directory, so `foo` can never list, restore or prune `foo.txt` backups
+  and pruning one path leaves its siblings untouched.
+- **Connected Computer Use no longer crashes the prompt.** The missing
+  `COMPUTER_DIRECT_CONFIG` import is restored; connecting the native desktop
+  server builds the system prompt instead of throwing. See
+  `docs/findings/computer-direct-config.md`.
 
 ## [2.6.0] - 2026-10-14
 
