@@ -6,7 +6,7 @@ import path from 'node:path';
 import * as registry from '../../tools/index.mjs';
 import { backupPath, listBackups, restoreBackup } from '../../tools/shared/_backup.mjs';
 import { auditPath, audit } from '../../tools/shared/_audit.mjs';
-import { parseSkillFile, isToolAllowedForSkill, permissionSummary } from '../../src/core/skills.mjs';
+import { parseSkillFile, permissionSummary, skillPromptLines } from '../../src/core/skills.mjs';
 import { waitForExit } from '../../tools/process/run-command.mjs';
 
 function workspace(t) {
@@ -29,6 +29,25 @@ test('backup round-trips a file and prunes to the per-file cap', t => {
   const src = restoreBackup(p, ctx, -1);
   assert.ok(src);
   assert.equal(fs.readFileSync(p, 'utf8'), 'v2');
+});
+
+test('backups stay isolated between paths that share a filename prefix', t => {
+  const ctx = workspace(t);
+  const file = path.join(ctx.cwd, 'foo.txt');
+  const sibling = path.join(ctx.cwd, 'foo');
+  fs.writeFileSync(file, 'file-v1');
+  backupPath(file, ctx);
+  fs.writeFileSync(sibling, 'sibling-v1');
+  backupPath(sibling, ctx);
+  fs.writeFileSync(sibling, 'sibling-v2');
+  assert.equal(listBackups(sibling, ctx).length, 1, 'a sibling must not list the other path backups');
+  assert.equal(listBackups(file, ctx).length, 1);
+  restoreBackup(sibling, ctx);
+  assert.equal(fs.readFileSync(sibling, 'utf8'), 'sibling-v1');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'file-v1', 'restoring one path must never overwrite its sibling');
+  for (let i = 0; i < 25; i++) backupPath(file, ctx);
+  assert.equal(listBackups(file, ctx).length, 20, 'pruning is per original path');
+  assert.equal(listBackups(sibling, ctx).length, 1, 'pruning one path must not delete another path backups');
 });
 
 test('delete_file keeps a backup, previews size, and writes a scrubbed audit record', t => {
@@ -73,16 +92,16 @@ test('run_command appends a scrubbed audit record', async t => {
   assert.doesNotMatch(lines, /ghp_/);
 });
 
-test('skill permission manifest parses, validates, and gates tools', () => {
+test('skill permission manifest parses, validates, and appears in the catalogue', () => {
   const src = '---\nname: demo-skill\ndescription: Demonstrates permission manifests for safe community skills.\nallowed-tools: read_file, list_dir\ntouches: files, network\n---\n# demo\nBody here.\n';
   const parsed = parseSkillFile(src, 'demo-skill');
   assert.deepEqual(parsed.allowedTools, ['read_file', 'list_dir']);
   assert.deepEqual(parsed.touches, ['files', 'network']);
-  assert.equal(isToolAllowedForSkill(parsed, 'read_file'), true);
-  assert.equal(isToolAllowedForSkill(parsed, 'run_command'), false);
-  assert.match(permissionSummary(parsed), /allowed-tools/);
+  assert.match(permissionSummary(parsed), /allowed-tools: read_file, list_dir/);
+  assert.match(permissionSummary(parsed), /touches: files, network/);
+  assert.match(skillPromptLines([parsed]).join('\n'), /Permissions: allowed-tools: read_file, list_dir; touches: files, network/);
   const legacy = parseSkillFile('---\nname: old-skill\ndescription: Legacy skill without any permission manifest declared.\n---\n# old\nBody.\n', 'old-skill');
-  assert.equal(isToolAllowedForSkill(legacy, 'run_command'), true);
+  assert.equal(permissionSummary(legacy), '', 'legacy skills stay unrestricted and unchanged');
   const bad = parseSkillFile('---\nname: bad-skill\ndescription: Bad skill with an invalid tool name in manifest.\nallowed-tools: Bad Tool!\n---\n# bad\nBody.\n', 'bad-skill');
   assert.ok(bad.error);
 });
@@ -95,6 +114,19 @@ test('move_file preview shows size and writes audit', t => {
   const out = registry.get('move_file').run({ source: 'm.txt', destination: 'n.txt' }, ctx);
   assert.match(out, /Moved/);
   assert.ok(fs.existsSync(path.join(ctx.cwd, 'n.txt')));
+});
+
+test('move_file keeps an undo copy of the source and reports how to restore it', t => {
+  const ctx = workspace(t);
+  fs.writeFileSync(path.join(ctx.cwd, 'undo.txt'), 'before move');
+  const out = registry.get('move_file').run({ source: 'undo.txt', destination: 'moved/undo.txt' }, ctx);
+  assert.match(out, /Backup/);
+  assert.match(out, /restore_file/);
+  assert.equal(fs.existsSync(path.join(ctx.cwd, 'undo.txt')), false);
+  const restored = registry.get('restore_file').run({ path: 'undo.txt' }, ctx);
+  assert.match(restored, /Restored/);
+  assert.equal(fs.readFileSync(path.join(ctx.cwd, 'undo.txt'), 'utf8'), 'before move');
+  assert.equal(fs.readFileSync(path.join(ctx.cwd, 'moved/undo.txt'), 'utf8'), 'before move');
 });
 
 test('backup skips symlinks and oversized files, restore validates index', t => {

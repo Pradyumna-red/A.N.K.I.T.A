@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { redactValue } from "../../src/security/secret-scrubber.mjs";
+import { BACKUP_DIR_NAME } from "./_backup.mjs";
 
-// Audit log location (file name): JSONL inside the workspace so every
-// shell/file mutation is reviewable without a database.
-export const AUDIT_DIR_NAME = ".ankita_backups";
+// Audit log location (dir name): shared with backups so every shell/file
+// mutation is reviewable without a database.
+export const AUDIT_DIR_NAME = BACKUP_DIR_NAME;
 // Audit file name (JSONL, one scrubbed record per line).
 export const AUDIT_FILE_NAME = "audit.jsonl";
 // Audit field cap (chars): truncates long commands/output so one record cannot fill the disk.

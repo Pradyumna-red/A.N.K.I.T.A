@@ -1,10 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 // Backup location (dir name): kept inside the workspace so undo works
 // without config and never writes outside the workspace boundary.
 export const BACKUP_DIR_NAME = ".ankita_backups";
+// Directory-name characters (hex): one hashed directory per original path keeps
+// "foo" and "foo.txt" backups separate and bounds the name for deep paths.
+const BACKUP_KEY_CHARS = 32;
 // Per-file backup cap (count): bounds disk use while keeping recent undo steps.
 export const MAX_BACKUPS_PER_FILE = 20;
 // Per-file backup cap (bytes): files larger than this are not copied (preview still shows them).
@@ -16,30 +19,52 @@ function stamp(now = Date.now()) {
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${pad(d.getMilliseconds(), 3)}`;
 }
 
+function workspaceRoot(ctx = {}) {
+  return path.resolve(ctx.workspacePath || ctx.cwd || process.cwd());
+}
+
+// Resolve a deleted file's parent so directory casing stays stable across backup and restore.
+function canonicalPath(p) {
+  const resolved = path.resolve(p);
+  try {
+    return fs.realpathSync.native(resolved);
+  } catch {
+    try {
+      return path.join(fs.realpathSync.native(path.dirname(resolved)), path.basename(resolved));
+    } catch {
+      return resolved;
+    }
+  }
+}
+
 export function backupRoot(ctx = {}) {
-  const root = path.resolve(ctx.workspacePath || ctx.cwd || process.cwd());
-  return path.join(root, BACKUP_DIR_NAME);
+  return path.join(workspaceRoot(ctx), BACKUP_DIR_NAME);
 }
 
 function safeRelative(root, p) {
-  const rel = path.relative(root, path.resolve(p));
+  const rel = path.relative(root, canonicalPath(p));
   if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) throw new Error("Path is outside the workspace boundary.");
-  return rel.split(path.sep).join("__");
+  return rel;
+}
+
+// Store each original path in its own hashed directory: a shared filename prefix
+// must never let "foo" list or prune the backups of "foo.txt".
+function backupDir(originalPath, ctx = {}) {
+  const rel = safeRelative(workspaceRoot(ctx), originalPath);
+  const key = createHash("sha256").update(rel).digest("hex").slice(0, BACKUP_KEY_CHARS);
+  return path.join(backupRoot(ctx), key);
 }
 
 export function listBackups(originalPath, ctx = {}) {
-  const root = path.resolve(ctx.workspacePath || ctx.cwd || process.cwd());
-  const dir = backupRoot(ctx);
+  const dir = backupDir(originalPath, ctx);
   let entries;
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile() || e.isDirectory());
   } catch {
     return [];
   }
-  const prefix = `${safeRelative(root, originalPath)}.`;
   return entries
     .map((e) => e.name)
-    .filter((n) => n.startsWith(prefix))
     .sort()
     .map((n) => path.join(dir, n));
 }
@@ -64,12 +89,11 @@ export function backupPath(originalPath, ctx = {}) {
   }
   if (stat.isSymbolicLink()) return null;
   if (stat.isFile() && stat.size > MAX_BACKUP_BYTES) return null;
-  const root = path.resolve(ctx.workspacePath || ctx.cwd || process.cwd());
-  const dir = backupRoot(ctx);
+  const dir = backupDir(originalPath, ctx);
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch {}
-  const name = `${safeRelative(root, originalPath)}.${stamp()}.${randomUUID().slice(0, 8)}.bak`;
+  const name = `${stamp()}.${randomUUID().slice(0, 8)}.bak`;
   const dest = path.join(dir, name);
   try {
     if (stat.isDirectory()) fs.cpSync(originalPath, dest, { recursive: true });

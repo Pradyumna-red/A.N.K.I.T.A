@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolvePath, assertNotWorkspaceRoot } from "../shared/_shared.mjs";
+import { backupPath } from "../shared/_backup.mjs";
 import { audit } from "../shared/_audit.mjs";
 
 export const name = "move_file";
@@ -22,7 +23,7 @@ export function approval(args, ctx) {
     const stat = fs.statSync(src);
     detail = stat.isDirectory() ? `  (${fs.readdirSync(src).length} top-level entries)` : `  (${stat.size}b)`;
   } catch {}
-  return `move  ${src}${detail}\n  to  ${resolvePath(args.destination, ctx)}`;
+  return `move  ${src}${detail}\n  to  ${resolvePath(args.destination, ctx)}\nA backup of the source is kept; restore with restore_file.`;
 }
 
 export function run(args, ctx = {}) {
@@ -33,7 +34,8 @@ export function run(args, ctx = {}) {
   assertNotWorkspaceRoot(src, ctx);
   if (fs.existsSync(dst)) throw new Error(`destination already exists: ${dst} (delete it first or pick another name)`);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
+  const backup = backupPath(src, ctx);
   fs.renameSync(src, dst);
-  audit(ctx, { tool: name, source: src, destination: dst });
-  return `Moved ${src} to ${dst}`;
+  audit(ctx, { tool: name, source: src, destination: dst, backup });
+  return `Moved ${src} to ${dst}${backup ? `\nBackup: ${backup}\nRestore with restore_file {"path": ${JSON.stringify(args.source)}}` : ""}`;
 }

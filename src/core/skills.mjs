@@ -131,12 +131,6 @@ export function loadSkills(dir) {
 
 const automaticBlock = skill => `Automatically loaded skill: ${skill.name}\n${skill.body}`;
 
-/** Permission check (v1): empty allowed-tools means unrestricted (hint-only legacy). */
-export function isToolAllowedForSkill(skill, toolName) {
-  if (!skill || !Array.isArray(skill.allowedTools) || !skill.allowedTools.length) return true;
-  return skill.allowedTools.includes(toolName);
-}
-
 export function permissionSummary(skill) {
   const parts = [];
   if (Array.isArray(skill.allowedTools) && skill.allowedTools.length) parts.push(`allowed-tools: ${skill.allowedTools.join(', ')}`);
