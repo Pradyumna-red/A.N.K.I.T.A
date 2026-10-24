@@ -170,7 +170,7 @@ try {
   assert.equal((await settle(mfa.id)).lastStatus, 'skipped-needs-foreground'); assert.equal(fixture.audit.mfa, 1); assert.equal(fixture.audit.posts.length, 2);
   console.log('MFA_NEEDS_FOREGROUND_OK: typed stop receipt; no guessed code, password dialog or extra post');
   await send(`Save this as my Github API key: ${FAKE_KEY}`);
-  await page.waitForFunction(() => document.querySelector('.secret-toast')?.textContent.includes('Saved securely'));
+  await page.waitForFunction(() => document.querySelector('.notice-card')?.textContent.includes('Saved securely'));
   const named = await page.evaluate(() => window.ankita.invoke('secretList')); assert.equal(named[0].name, 'github-api-key');
   await send(`DB_PASSWORD=${FAKE_PASSWORD}`);
   await send(`Save this as my OpenAI key: ${FAKE_GENERIC_KEY}`);

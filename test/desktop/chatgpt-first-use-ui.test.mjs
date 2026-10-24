@@ -46,7 +46,7 @@ test('chat keeps browser controls in Settings while preserving drafts and Stop a
   assert.equal(await page.getByRole('button',{name:'Show ChatGPT',exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Browser settings',exact:true}).count(),0);
   await page.evaluate(()=>window.showConnection({status:'ready',mode:'chrome',selectedModel:null,threadId:'fixture',recoverable:[{id:'lost-first-reply',outcome:'completed'}]}));
-  await page.locator('.conversation-state').filter({hasText:'Check reply'}).waitFor();
+  await page.waitForFunction(()=>document.querySelector('button[aria-label="Send message"]')?.disabled===true);
   assert.equal(await page.getByRole('button',{name:'Send message',exact:true}).isDisabled(),true);
   await draft.press('Enter');
   assert.equal(await draft.inputValue(),'Keep this draft while I check Settings');
@@ -63,7 +63,7 @@ test('chat keeps browser controls in Settings while preserving drafts and Stop a
   assert.equal(await page.getByRole('button',{name:'Send message',exact:true}).isDisabled(),true);
   assert.equal(await page.getByRole('region',{name:'ChatGPT connection'}).count(),0);
   await page.evaluate(()=>window.showConnection({status:'ready',mode:'chrome',selectedModel:null,threadId:'fixture',recoverable:[],replying:false}));
-  await page.locator('.conversation-state').filter({hasText:'Ready'}).waitFor();
+  await page.waitForFunction(()=>document.querySelector('button[aria-label="Send message"]')?.disabled===false);
   assert.equal(await draft.inputValue(),'Keep this draft while I check Settings');
   if(process.env.ANKITA_UI_CAPTURE_DIR){fs.mkdirSync(process.env.ANKITA_UI_CAPTURE_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.ANKITA_UI_CAPTURE_DIR,'chat-settings-only.png')});}
   await page.getByRole('button',{name:'Send message',exact:true}).click();

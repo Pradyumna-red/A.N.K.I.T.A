@@ -21,6 +21,23 @@ undo tool; advisory skill manifests name the tools and scopes a skill touches.
 The desktop gained a searchable slash-command menu, and connecting native
 Computer Use no longer throws while building the system prompt.
 
+The desktop UI pass replaces the raw error toast with compact, dismissible
+notices (two-line detail plus an on-demand `Details` popover for the hint and
+technical text); IPC, scheduler, network, auth, quota, disk and permission
+failures get actionable copy through one shared cleaner, including the floating
+island. A companion-capture port conflict now returns an unavailable state
+instead of rejecting `engine:invoke`, passive mascot hover stays silent, and an
+interrupted dev session terminates the whole Electron process tree. Connection
+state uses a single pill and halo language across the sidebar, jobs, browser
+stage, plugins and ChatGPT settings; the conversation header now shows only the
+name and persona, the mascot's corner helper badge moved into the conversation
+menu, and the composer keeps its rounded focus border without the extra square
+focus outline. Providers and ChatGPT setup
+keep one reading column with grouped actions and a single save bar; Settings
+share tokenized inputs, selects, switches, focus rings and inline destructive
+confirmations. Findings and verification are recorded in
+`docs/findings/2026-10-24-desktop-ui-polish.md`.
+
 Hosted ChatGPT sign-in, a signed installer and packaged-device round trips remain
 open verification gates.
 

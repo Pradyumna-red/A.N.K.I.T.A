@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { createServer } from 'vite';
+import { terminateProcessTree } from './process-tree.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url)); // This checkout owns both the renderer and Electron host.
 const VITE_CONFIG = 'desktop/vite.config.ts'; // Checkout-relative Vite configuration; never a user profile path.
@@ -16,7 +17,7 @@ export async function startDesktopDev({ root = ROOT, electronPath = require('ele
     server: { strictPort: false }, ...(logLevel ? { logLevel } : {}) }); // Vite selects a free port; the host receives only this owned server's URL.
   let electron, childDone, closing;
   const close = () => closing ??= (async () => {
-    if (electron && electron.exitCode === null && electron.signalCode === null) electron.kill();
+    if (electron) await terminateProcessTree(electron);
     await server.close();
     await childDone;
   })();
@@ -25,6 +26,7 @@ export async function startDesktopDev({ root = ROOT, electronPath = require('ele
     const url = server.resolvedUrls?.local?.[0];
     if (!url) throw new Error('The desktop renderer did not publish a local address');
     electron = spawn(electronPath, electronArgs, { cwd: root, stdio, windowsHide: true,
+      detached: process.platform !== 'win32', // POSIX: own the whole group so shutdown stops Chromium children too.
       env: { ...env, ANKITA_DESKTOP_DEV_URL: url } });
     childDone = new Promise(resolve => electron.once('close', (code, signal) => resolve({ code, signal })));
     const closed = childDone.then(async result => { await close(); return result; });

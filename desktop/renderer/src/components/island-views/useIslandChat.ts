@@ -5,7 +5,9 @@ import { playSound } from '../../island/sound';
 import { useCompanionDrafts } from '../../lib/useCompanionDrafts';
 import { EMPTY_COMPANION_DRAFT } from '../../../../shared/companion-drafts.mjs';
 import { CAPTURE_UI_EVENTS } from '../../../../browser-helper/protocol.mjs';
+import { describeErrorNotice } from '../../../../shared/error-notices.mjs';
 
+const errorDetail = (error: unknown) => describeErrorNotice(error).detail;
 const EMPTY_DRAFT = EMPTY_COMPANION_DRAFT;
 const EMPTY_STATE: IslandState = { threads: {} };
 export type IslandChat = ReturnType<typeof useIslandChat>;
@@ -37,7 +39,7 @@ export function useIslandChat() {
       if (event.type === 'teammates-changed') {
         void window.ankita.invoke<Teammate[]>('listTeammates').then(list => {
           if (alive) setTeammates(list);
-        }).catch(error => { if (alive) setConnectionError(String(error.message || error)); });
+        }).catch(error => { if (alive) setConnectionError(errorDetail(error)); });
       }
       if (!ready) queued.push(event);
       else setState(current => reduceIslandState(current, event));
@@ -57,7 +59,7 @@ export function useIslandChat() {
       if (!alive) return;
       ready = true;
       setState(current => queued.reduce(reduceIslandState, current));
-      setConnectionError(String(error.message || error));
+      setConnectionError(errorDetail(error));
       setLoading(false);
     });
     return () => { alive = false; aliveRef.current = false; off(); };
@@ -100,7 +102,7 @@ export function useIslandChat() {
       if (aliveRef.current) updateDraft(id, () => EMPTY_DRAFT);
       playSound('send');
     } catch (error) {
-      if (aliveRef.current) updateDraft(id, current => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
+      if (aliveRef.current) updateDraft(id, current => ({ ...current, error: errorDetail(error) }));
     } finally {
       pendingRef.current.delete(id);
       if (aliveRef.current) setPending([...pendingRef.current]);
@@ -109,13 +111,14 @@ export function useIslandChat() {
   const stop = async () => {
     if (!teammateId) return;
     try { await window.ankita.invoke('cancel', { id: teammateId }); }
-    catch (error) { updateDraft(teammateId, current => ({ ...current, error: error instanceof Error ? error.message : String(error) })); }
+    catch (error) { updateDraft(teammateId, current => ({ ...current, error: errorDetail(error) })); }
   };
 
+  const rawError = draft.error || thread?.error || connectionError;
   return { state, teammates, teammateId, selectTeammate: setTeammateId,
     teammateName: teammates.find(item => item.id === teammateId)?.name || 'Ankita',
     log: thread?.log || [], thinking, sending, loading,
-    error: draft.error || thread?.error || connectionError,
+    error: rawError ? errorDetail(rawError) : '',
     input: draft.text, setInput, attachments: draft.files, addFiles, removeFile,
     reading: draft.reading, submit, stop };
 }

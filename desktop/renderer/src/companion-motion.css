@@ -15,8 +15,6 @@
 .island-mascot-name { max-width:100%; overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .island-drop-hint, .island-capture-status { position:absolute; bottom:5px; right:16px; max-width:75%; color:var(--companion-soft); font-size:10px; pointer-events:none; overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
 .island.is-dragging { box-shadow:inset 0 0 0 1px var(--companion-blue); }
-.companion-helper-toggle { position:absolute; bottom:-3px; right:-6px; font-size:10px; padding:2px 4px; color:var(--companion-dim); background:var(--companion-card); border:1px solid var(--edge,var(--hairline)); border-radius:50%; }
-.companion-helper-popover { position:absolute; top:100%; left:0; z-index:20; width:310px; padding:16px; border:1px solid var(--edge); border-radius:16px; background:var(--companion-card); box-shadow:0 12px 48px #0006; }
 .companion-capture-toast { position:absolute; top:100%;left:0;z-index:19;min-width:180px;max-width:260px;padding:8px 12px;border-radius:10px;background:var(--companion-card);color:var(--companion-soft);box-shadow:0 6px 20px #0003;font-size:11px;pointer-events:none; }
 .companion-helper-setup { font-size:11px; color:var(--companion-soft); }
 .companion-helper-setup button { font:inherit; color:var(--companion-ink); background:var(--companion-raised); border:1px solid var(--edge,var(--hairline)); border-radius:8px; padding:6px 8px; margin:3px 4px 3px 0; }

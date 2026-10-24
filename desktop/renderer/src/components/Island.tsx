@@ -18,9 +18,12 @@ import { useMascotInteraction } from '../lib/useMascotInteraction';
 import { useMascotCapture } from '../lib/useMascotCapture';
 import { MascotFile } from './MascotFile';
 import { CAPTURE_UI_EVENTS } from '../../../browser-helper/protocol.mjs';
+import { MASCOT_DRAG_HINT } from '../../../shared/companion-copy.mjs';
+import { describeErrorNotice } from '../../../shared/error-notices.mjs';
 
 type IslandApproval = ApprovalItem & { threadId?: string | null; routineId?: string };
 const FLASH_MS = 4000; // Milliseconds; completion/error expression before returning to live work.
+const errorDetail = (error: unknown) => describeErrorNotice(error).detail;
 const LOOK_RANGE_PX = 180; // Cursor pixels mapped to a full eye movement.
 const TUCK_DELAY_MS = 900; // Milliseconds; close the quiet compact tab after pointer exit.
 const HOME_COLLAPSE_MS = 15000; // Milliseconds; Coucou's home-to-compact pause.
@@ -119,7 +122,7 @@ export function Island() {
       setJobs(list || []);
       if (list?.some(job => job.pendingApproval)) openHome(true);
     }).catch(error => {
-      if (alive) setErrorCard({ who: 'Scheduled jobs', detail: String(error.message || error) });
+      if (alive) setErrorCard({ who: 'Scheduled jobs', detail: errorDetail(error) });
     });
     refreshApprovals();
     const off = window.ankita.onEvent((event: EngineEvent) => {
@@ -142,7 +145,7 @@ export function Island() {
         if (!failedTurns.current.has(event.threadId)) showFlash('finished');
       } else if (event.type === 'routine-failed' || event.type === 'error') {
         if (event.threadId) failedTurns.current.add(event.threadId);
-        setErrorCard({ who: event.type === 'error' ? 'Ankita' : 'Scheduled job', detail: event.type === 'error' ? event.message : event.text || event.status });
+        setErrorCard({ who: event.type === 'error' ? 'Ankita' : 'Scheduled job', detail: errorDetail(event.type === 'error' ? event.message : event.text || event.status) });
         showFlash('error');
       }
     });
@@ -237,7 +240,7 @@ export function Island() {
       steps: stepsRef.current.get(job.id) || [], tools: [] })),
   ];
   const stopActivity = (item: ActivityItem) => void window.ankita.invoke(item.routineId ? 'scheduleStop' : 'cancel', { id: item.routineId || item.threadId })
-    .catch(error => setErrorCard({ who: item.name, detail: String(error.message || error) }));
+    .catch(error => setErrorCard({ who: item.name, detail: errorDetail(error) }));
   const status = approvals.length ? approvals.length + ' awaiting permission' : runningCount ? runningCount + ' working' : 'Ready when you are';
   const home = view === 'home';
 
@@ -267,8 +270,8 @@ export function Island() {
       <button className="island-tab" aria-label="Collapse island" title="Collapse (Esc)" onClick={closeHome}><Icon name="chevronRight" size={14} stroke={2} /></button>
     </div>}
     <div className="island-content">
-      <div className="island-mascot" ref={mascotBox} draggable title={capture.message || 'Drag onto a webpage; drop files here'}
-        onMouseEnter={() => { if (!capture.setup?.paired) void capture.refresh(); }}
+      <div className="island-mascot" ref={mascotBox} draggable title={MASCOT_DRAG_HINT}
+        onMouseEnter={() => { if (!capture.setup?.paired) void capture.refresh({ quiet: true }); }}
         onDragStart={event => { if (capture.start(event, selectedTeammate?.id || null)) pose('grab'); }}
         onDragEnd={event => { capture.end(event); reset(); }}>
         <div className={'island-glow' + (approvals.length ? ' island-glow-pulse' : '')} style={{ background: 'radial-gradient(circle, ' + STATE_GLOW[botState] + ' 0%, transparent 70%)' }} />

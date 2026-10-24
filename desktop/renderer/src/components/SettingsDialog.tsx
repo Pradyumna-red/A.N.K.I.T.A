@@ -6,6 +6,8 @@ import { TeammateAvatar } from './TeammateAvatar';
 import { nextRunLabel } from './ScheduledTaskCard';
 import { CHATGPT_BROWSER_PROVIDER, CHATGPT_BROWSER_LABEL, CHATGPT_CURRENT_MODEL_LABEL } from '../../../shared/chatgpt-browser.mjs';
 import { ChatGptConnection } from './ChatGptConnection';
+import { StatusPill } from './StatusPill';
+import { cleanErrorMessage } from '../../../shared/error-notices.mjs';
 
 export type SettingsTab = 'model' | 'providers' | 'profile' | 'images' | 'channels' | 'background' | 'privacy' | 'appearance' | 'about';
 
@@ -79,11 +81,12 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
   const [hostSettings, setHostSettings] = useState({ startAtLogin: false, supported: false });
   const [hostBusy, setHostBusy] = useState(false);
   const [hostLoaded, setHostLoaded] = useState(false);
+  const [scrubConfirm, setScrubConfirm] = useState(false);
   useEffect(() => {
     if (tab !== 'background') return;
     let active = true;
     setHostLoaded(false);
-    void window.ankita.invoke<typeof hostSettings>('scheduleHostSettings').then(value => { if (active) { setHostSettings(value); setHostLoaded(true); } }).catch(error => { if (active) setNotice({ tone: 'error', text: error.message }); });
+    void window.ankita.invoke<typeof hostSettings>('scheduleHostSettings').then(value => { if (active) { setHostSettings(value); setHostLoaded(true); } }).catch(error => { if (active) setNotice({ tone: 'error', text: cleanErrorMessage(error) }); });
     return () => { active = false; };
   }, [tab]);
 
@@ -92,7 +95,7 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
     if (tab !== 'channels' || !window.ankita) return;
     void window.ankita.invoke<ChannelsView>('getChannels')
       .then(view => { setChannels(view); setChannelDraft(fromChannels(view)); setChannelRemoved(false); })
-      .catch(error => setChannelNotice({ tone: 'error', text: error.message }));
+      .catch(error => setChannelNotice({ tone: 'error', text: cleanErrorMessage(error) }));
   }, [tab]);
   useEffect(() => { dialog.current?.focus(); }, []);
   useEffect(() => {
@@ -169,7 +172,7 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
       onSaved(result);
       setDraft(fromPreferences(result.preferences)); setRemoved([]);
       setNotice({ tone: 'ok', text: 'Changes saved.' });
-    } catch (error) { setNotice({ tone: 'error', text: (error as Error).message }); }
+    } catch (error) { setNotice({ tone: 'error', text: cleanErrorMessage(error) }); }
     finally { setBusy(false); }
   };
   const test = async () => {
@@ -179,7 +182,7 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
         apiBase: draft.customApiBase, ...(draft.customApiKey || removed.includes('customApiKey') ? { apiKey: draft.customApiKey } : {}),
       });
       setTestResult({ tone: 'ok', text: `Connected · ${result.models} model${result.models === 1 ? '' : 's'} found` });
-    } catch (error) { setTestResult({ tone: 'error', text: (error as Error).message }); }
+    } catch (error) { setTestResult({ tone: 'error', text: cleanErrorMessage(error) }); }
     finally { setTesting(false); }
   };
   const setChannel = <K extends keyof ChannelDraft>(key: K, value: ChannelDraft[K]) => setChannelDraft(current => current ? { ...current, [key]: value } : current);
@@ -202,7 +205,7 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
       const view = await window.ankita.invoke<ChannelsView>('saveChannelSettings', { channel: 'telegram', patch });
       setChannels(view); setChannelDraft(fromChannels(view)); setChannelRemoved(false); setChannelTokenVisible(false);
       setChannelNotice({ tone: 'ok', text: view.telegram.status.running ? `Connected as ${view.telegram.status.account || 'your bot'}.` : 'Channel saved.' });
-    } catch (error) { setChannelNotice({ tone: 'error', text: (error as Error).message }); }
+    } catch (error) { setChannelNotice({ tone: 'error', text: cleanErrorMessage(error) }); }
     finally { setChannelBusy(false); }
   };
   const testChannel = async () => {
@@ -211,8 +214,20 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
     try {
       const result = await window.ankita.invoke<{ username: string | null }>('testTelegramChannel', { token: channelDraft.token });
       setChannelTestResult({ tone: 'ok', text: result.username ? `Connected as @${result.username}` : 'Bot reachable' });
-    } catch (error) { setChannelTestResult({ tone: 'error', text: (error as Error).message }); }
+    } catch (error) { setChannelTestResult({ tone: 'error', text: cleanErrorMessage(error) }); }
     finally { setChannelTesting(false); }
+  };
+  const applySecretScrubbing = async (enabled: boolean) => {
+    setScrubConfirm(false); setBusy(true); setNotice(null);
+    try {
+      onSaved(await window.ankita.invoke<DesktopSettingsResult>('saveDesktopSettings', { secretScrubbing: enabled, ...(!enabled ? { secretWarningSeen: true } : {}) }));
+      setNotice({ tone: 'ok', text: enabled ? 'Secret scrubbing is on.' : 'Secret scrubbing is off.' });
+    } catch (error) { setNotice({ tone: 'error', text: cleanErrorMessage(error) }); }
+    finally { setBusy(false); }
+  };
+  const changeSecretScrubbing = (enabled: boolean) => {
+    if (!enabled && !preferences.secretWarningSeen) { setScrubConfirm(true); return; }
+    void applySecretScrubbing(enabled);
   };
   const channelHasToken = Boolean(channels?.telegram.hasToken) && !channelRemoved;
   const model = models.find(item => item.id === draft.model);
@@ -221,13 +236,13 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
   const changeHost = async (startAtLogin: boolean) => {
     setHostBusy(true); setNotice(null);
     try { setHostSettings(await window.ankita.invoke<typeof hostSettings>('scheduleHostSettings', { startAtLogin })); }
-    catch (error) { setNotice({ tone: 'error', text: (error as Error).message }); }
+    catch (error) { setNotice({ tone: 'error', text: cleanErrorMessage(error) }); }
     finally { setHostBusy(false); }
   };
   const pauseJobs = async () => {
     setHostBusy(true); setNotice(null);
     try { await window.ankita.invoke('schedulePauseAll'); setNotice({ tone: 'ok', text: 'All scheduled jobs paused. Active runs can finish; open a task to stop its run.' }); }
-    catch (error) { setNotice({ tone: 'error', text: (error as Error).message }); }
+    catch (error) { setNotice({ tone: 'error', text: cleanErrorMessage(error) }); }
     finally { setHostBusy(false); }
   };
 
@@ -281,7 +296,7 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
             {draft.provider === CHATGPT_BROWSER_PROVIDER && <ChatGptConnection teammates={teammates} initialThreadId={selectedThreadId} enabled={preferences.provider === CHATGPT_BROWSER_PROVIDER} />}
             <h2 className="settings-section-title">Connected apps</h2>
             <div className="settings-panel"><h2>Composio</h2><p>Connect Gmail, Slack, Notion and other app tools with your Composio project key.</p>{secretField('composioApiKey', 'Project key', 'Enter your Composio key')}</div>
-            <div className="settings-provider-actions"><button type="button" className="settings-primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save provider settings'}</button><span>Keys are saved on this device and never shown again.</span></div>
+            <div className="settings-savebar"><span>Keys are saved on this device and never shown again.</span><button type="button" className="settings-primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save provider settings'}</button></div>
           </div>}
           {tab === 'images' && <div className="settings-content">
             <div className="settings-heading"><span className="settings-heading-icon"><Icon name="sparkle" size={20} /></span><h1 id="settings-title">Images</h1><p>Configure three separate image tools: original generation, Unsplash photos, and Pixabay photos or illustrations.</p></div>
@@ -308,13 +323,13 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
               <div className="settings-panel">
                 <div className="channel-card-head">
                   <span className="channel-brand"><Icon name="send" size={16} />Telegram</span>
-                  <span className={`channel-status ${channels.telegram.status.error ? 'error' : channels.telegram.status.running ? 'live' : ''}`}>
-                    <i />{channels.telegram.status.error ? 'Error' : channels.telegram.status.running ? (channels.telegram.status.account || 'Running') : 'Off'}
-                  </span>
+                  <StatusPill className="channel-status" tone={channels.telegram.status.error ? 'error' : channels.telegram.status.running ? 'live' : 'idle'} role="status">
+                    {channels.telegram.status.error ? 'Error' : channels.telegram.status.running ? (channels.telegram.status.account || 'Running') : 'Off'}
+                  </StatusPill>
                 </div>
                 {channels.telegram.status.error && <p className="channel-error">{channels.telegram.status.error}</p>}
                 <p>Create a bot with <button type="button" className="settings-text-button channel-link" onClick={() => void window.ankita.openExternal('https://t.me/BotFather')}>@BotFather</button>, paste its token here, then message the bot and add the chat id it replies with.</p>
-                <label className="channel-toggle"><input type="checkbox" checked={channelDraft.enabled} onChange={event => setChannel('enabled', event.target.checked)} /><span>Run the Telegram bridge while Ankita is open</span></label>
+                <label className="settings-switch-row"><span><strong>Run the Telegram bridge</strong><small>Active while Ankita is open.</small></span><input type="checkbox" role="switch" checked={channelDraft.enabled} onChange={event => setChannel('enabled', event.target.checked)} /></label>
                 <div className="settings-field">
                   <div className="settings-field-heading"><label htmlFor="setting-telegram-token">Bot token</label>{channelHasToken && <span className="settings-saved">Saved</span>}{channelRemoved && <span className="settings-removed">Will remove</span>}</div>
                   <div className="settings-secret-control">
@@ -349,7 +364,7 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
                   </select>
                   <p className="settings-help">Telegram and the desktop share this teammate's thread and history.</p>
                 </div>
-                <label className="channel-toggle"><input type="checkbox" checked={channelDraft.voiceReply} onChange={event => setChannel('voiceReply', event.target.checked)} /><span>Reply to voice notes with voice</span></label>
+                <label className="settings-switch-row"><span><strong>Reply to voice notes with voice</strong><small>Ankita answers a voice message in kind.</small></span><input type="checkbox" role="switch" checked={channelDraft.voiceReply} onChange={event => setChannel('voiceReply', event.target.checked)} /></label>
                 <div className="settings-provider-actions">
                   <button type="button" className="settings-secondary" onClick={testChannel} disabled={channelTesting || (!channelDraft.token && !channelHasToken)}>{channelTesting ? 'Testing…' : 'Test connection'}</button>
                   <button type="button" className="settings-primary" onClick={saveChannel} disabled={channelBusy}>{channelBusy ? 'Saving…' : 'Save channel'}</button>
@@ -390,11 +405,16 @@ export function SettingsDialog({ tab, onTab, onClose, preferences, models, teamm
           </div>}
           {tab === 'privacy' && <div className="settings-content">
             <div className="settings-heading"><span className="settings-heading-icon"><Icon name="shield" size={20} /></span><h1 id="settings-title">Privacy</h1><p>Keep pasted secrets out of saved conversations.</p></div>
-            <div className="settings-panel"><h2>Secret scrubbing</h2><p>Supported API keys, tokens, passwords and private keys are removed from history, job logs and exports. Explicitly saved secrets go to the encrypted Secure store.</p><label className="channel-toggle"><input type="checkbox" checked={preferences.secretScrubbing !== false} onChange={event => {
-              const enabled = event.target.checked;
-              if (!enabled && !preferences.secretWarningSeen && !window.confirm('Turning off secret scrubbing can save passwords and tokens in plain text. Continue?')) return;
-              void window.ankita.invoke<DesktopSettingsResult>('saveDesktopSettings', { secretScrubbing: enabled, ...(!enabled ? { secretWarningSeen: true } : {}) }).then(onSaved).catch(error => setNotice({ tone: 'error', text: error.message }));
-            }} /><span>Secret scrubbing</span></label><small>Arbitrary unlabeled secrets and secrets split between messages may not be detected.</small></div>
+            <section className="settings-panel">
+              <div className="settings-section-lead"><span className="settings-section-symbol"><Icon name="shield" size={18} /></span><div><h2>Secret scrubbing</h2><p>Supported API keys, tokens, passwords and private keys are removed from history, job logs and exports.</p></div></div>
+              <label className="settings-switch-row"><span><strong>Scrub pasted secrets</strong><small>Explicitly saved secrets still go to the encrypted Secure store.</small></span><input type="checkbox" role="switch" checked={preferences.secretScrubbing !== false} disabled={busy} onChange={event => changeSecretScrubbing(event.target.checked)} /></label>
+              <p className="settings-help">Arbitrary unlabeled secrets and secrets split between messages may not be detected.</p>
+              {scrubConfirm && <div className="settings-confirm" role="alertdialog" aria-label="Turn off secret scrubbing">
+                <Icon name="alert" size={16} />
+                <div><strong>Turn off secret scrubbing?</strong><p>Passwords and tokens you paste can then be saved in plain text in chat history, job logs and exports.</p></div>
+                <div className="settings-confirm-actions"><button type="button" className="settings-secondary" onClick={() => setScrubConfirm(false)}>Keep scrubbing</button><button type="button" className="settings-danger" onClick={() => void applySecretScrubbing(false)}>Turn off scrubbing</button></div>
+              </div>}
+            </section>
           </div>}
           {tab === 'appearance' && <div className="settings-content">
             <div className="settings-heading"><span className="settings-heading-icon"><Icon name="palette" size={20} /></span><h1 id="settings-title">Appearance</h1><p>Set the tone of your workspace.</p></div>

@@ -6,14 +6,12 @@ import { SkillsSection } from './SkillsSection';
 import { BrowserPluginsSection } from './BrowserPluginsSection';
 import { ComputerUseSection } from './ComputerUseSection';
 import { SecureStoreAccounts } from './SecureStore';
+import { cleanErrorMessage } from '../../../shared/error-notices.mjs';
 
 const PAGE_SIZE = 24;
 const featured = ['gmail', 'google_drive', 'googledrive', 'github', 'slack', 'notion', 'outlook', 'outlookemail'];
 
 function title(slug: string) { return slug.replace(/[_-]+/g, ' ').replace(/\b\w/g, char => char.toUpperCase()); }
-function message(error: unknown) {
-  return (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method ['"]engine:invoke['"]:\s*(?:Error:\s*)?/, '');
-}
 
 function PluginLogo({ slug, label, logo }: { slug: string; label: string; logo?: string }) {
   const [broken, setBroken] = useState(false);
@@ -58,7 +56,7 @@ export function PluginsPage({ chrome, sidebarOpen, onToggleSidebar, onOpenSettin
       const result = await window.ankita.invoke<PluginsOverview>(reconnect ? 'pluginsRefresh' : 'pluginsOverview');
       setOverview(result); setError('');
       return result;
-    } catch (cause) { setError(message(cause)); return null; }
+    } catch (cause) { setError(cleanErrorMessage(cause)); return null; }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
 
@@ -72,7 +70,7 @@ export function PluginsPage({ chrome, sidebarOpen, onToggleSidebar, onOpenSettin
       try {
         const result = await window.ankita.invoke<PluginsCatalogPage>('pluginsCatalog', { query: query.trim() });
         if (id === requestId.current) { setCards(result.cards); setCursor(result.nextCursor); setError(''); }
-      } catch (cause) { if (id === requestId.current) setError(message(cause)); }
+      } catch (cause) { if (id === requestId.current) setError(cleanErrorMessage(cause)); }
       finally { if (id === requestId.current) setCatalogBusy(false); }
     }, query ? 250 : 0);
     return () => { window.clearTimeout(timer); requestId.current++; };
@@ -122,7 +120,7 @@ export function PluginsPage({ chrome, sidebarOpen, onToggleSidebar, onOpenSettin
       if (id !== requestId.current) return;
       setCards(current => [...current, ...result.cards.filter(card => !current.some(old => old.slug === card.slug))]);
       setCursor(result.nextCursor); setVisible(current => current + PAGE_SIZE);
-    } catch (cause) { setError(message(cause)); }
+    } catch (cause) { setError(cleanErrorMessage(cause)); }
     finally { if (id === requestId.current) setCatalogBusy(false); }
   };
 
@@ -134,7 +132,7 @@ export function PluginsPage({ chrome, sidebarOpen, onToggleSidebar, onOpenSettin
       await window.ankita.openExternal(result.url);
       setAlias(''); setAwaiting(slug);
       setNotice(`Finish connecting ${lookup(slug).label} in your browser. This page will update when it is ready.`);
-    } catch (cause) { setError(message(cause)); }
+    } catch (cause) { setError(cleanErrorMessage(cause)); }
     finally { setActing(null); }
   };
 
@@ -146,7 +144,7 @@ export function PluginsPage({ chrome, sidebarOpen, onToggleSidebar, onOpenSettin
       await window.ankita.invoke(accountId ? 'pluginsDisconnectAccount' : 'pluginsDisconnectService', { slug, accountId });
       setNotice(accountId ? 'Account disconnected.' : `${lookup(slug).label} disconnected.`);
       await loadOverview(true);
-    } catch (cause) { setError(message(cause)); }
+    } catch (cause) { setError(cleanErrorMessage(cause)); }
     finally { setActing(null); }
   };
 

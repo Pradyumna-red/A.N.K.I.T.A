@@ -17,6 +17,8 @@ import { BrowserStage } from './components/BrowserStage';
 import { BROWSER_PREVIEW_POLL, publicBrowserView } from '../../shared/browser-progress.mjs';
 import { SecureStoreProvider } from './components/SecureStore';
 import { Icon } from './components/Icons';
+import { NoticeCard } from './components/NoticeCard';
+import { describeErrorNotice } from '../../shared/error-notices.mjs';
 import { IPC_CONTRACT, checkCompat } from '../../shared/version.mjs';
 import { RoutineSheet } from './components/RoutineSheet';
 import { JobsPanel } from './components/JobsPanel';
@@ -29,6 +31,7 @@ type Bootstrap = { teammates: Teammate[]; models: Model[]; settings: { username:
 type UiState = { selectedId?: string | null; sidebarWidth?: number; sidebarOpen?: boolean };
 
 const UI_KEY = 'ankita.ui';
+const TRANSIENT_NOTICE_MS = 6000; // ms — how long a confirmation notice stays before fading out
 
 function loadUi(): UiState {
   try { return JSON.parse(localStorage.getItem(UI_KEY) || '{}'); } catch { return {}; }
@@ -124,10 +127,10 @@ export default function App() {
   }, [state.selectedId]);
 
   useEffect(() => {
-    if (!state.error) return;
-    const timer = setTimeout(() => dispatch({ type: 'dismiss-error' }), 7000);
+    if (!secretNotice) return;
+    const timer = setTimeout(() => setSecretNotice(''), TRANSIENT_NOTICE_MS);
     return () => clearTimeout(timer);
-  }, [state.error]);
+  }, [secretNotice]);
 
   useEffect(() => {
     const unread = state.teammates.filter(t => state.unread[t.id] && t.id !== state.selectedId).length;
@@ -180,7 +183,7 @@ export default function App() {
   useEffect(() => {
     if (!update) return;
     if (update.type === 'current' || update.type === 'unsupported') {
-      const timer = setTimeout(() => setUpdate(null), 6000);
+      const timer = setTimeout(() => setUpdate(null), TRANSIENT_NOTICE_MS);
       return () => clearTimeout(timer);
     }
   }, [update]);
@@ -332,7 +335,9 @@ export default function App() {
     {update && <UpdateBanner update={update} onInstall={installUpdate} onOpenRelease={() => void window.ankita.openExternal('https://github.com/akyourowngames/A.N.K.I.T.A/releases/latest')} onDismiss={dismissUpdate} />}
     {state.compat && !state.compat.ok && !state.compatDismissed && <VersionMismatchNotice compat={state.compat} hasUpdate={update?.type === 'downloaded'} onRestart={recoverFromMismatch} onDismiss={() => dispatch({ type: 'compat-dismissed' })} />}
     {paletteOpen && <PaletteModal threadId={state.selectedId} revision={`${toolsRevision}:${state.jobs.map(job => `${job.id}:${job.enabled}:${job.nextRunAt}`).join('|')}`} onClose={() => setPaletteOpen(false)} onCommand={runCommand} />}
-    {secretNotice && !state.error && <div className="error-toast secret-toast" role="status"><Icon name="shield" size={18} /><span>{secretNotice}</span><button onClick={() => setSecretNotice('')} aria-label="Dismiss secret notice"><Icon name="close" size={16} /></button></div>}
-    {state.error && <div className="error-toast" role="alert"><Icon name="alert" size={18} /><span>{state.error}</span><button onClick={() => dispatch({ type: 'dismiss-error' })} aria-label="Dismiss error"><Icon name="close" size={16} /></button></div>}
+    {(state.error || secretNotice) && <div className="notice-stack">
+      {state.error && <NoticeCard notice={describeErrorNotice(state.error)} dismissLabel="Dismiss error" onDismiss={() => dispatch({ type: 'dismiss-error' })} />}
+      {secretNotice && <NoticeCard notice={{ tone: 'info', title: 'Secret protection', detail: secretNotice }} dismissLabel="Dismiss secret notice" onDismiss={() => setSecretNotice('')} />}
+    </div>}
   </div></SecureStoreProvider>;
 }

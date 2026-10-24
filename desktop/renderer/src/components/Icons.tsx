@@ -27,6 +27,7 @@ export function Icon({ name, size = 18, stroke = 1.8 }: { name: string; size?: n
     palette: <><path d="M12 3a9 9 0 0 0 0 18h1.5a2 2 0 0 0 1.5-3.3 1.6 1.6 0 0 1 1.2-2.7H18a3 3 0 0 0 3-3 9 9 0 0 0-9-9Z"/><circle cx="7.5" cy="11" r=".7" fill="currentColor"/><circle cx="10" cy="7" r=".7" fill="currentColor"/><circle cx="15" cy="7" r=".7" fill="currentColor"/></>,
     info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></>,
     key: <><circle cx="7.5" cy="15.5" r="4.5"/><path d="m11 12 9-9 2 2-2 2 1 2-2 2-2-1-2 2"/></>,
+    shield: <><path d="M12 3 5 6v5.5c0 4.4 2.9 7.8 7 9.5 4.1-1.7 7-5.1 7-9.5V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></>,
     eye: <><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></>,
     browser: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M6 6.5h.01M9 6.5h.01"/></>,
     globe: <><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></>,
