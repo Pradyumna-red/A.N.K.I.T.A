@@ -1,9 +1,9 @@
 # Skill: codebase-tour
-Suggested tools (hints only): glob, search_files, read_file
+Suggested tools (hints only): list_dir, glob, search_files, read_file
 ---
 # Codebase Tour
 
-1. Inspect the repository's top-level structure using `glob({"pattern":"*","max_results":100})`. Identify the main languages, project type, source directories, tests, and documentation from actual results. Do not assume a conventional layout.
+1. Inspect the repository's top-level structure using `list_dir({"path":"."})`. Identify the main languages, project type, source directories, tests, and documentation from actual results. Do not assume a conventional layout.
 
 2. Find documentation and relevant manifests with targeted calls:
    - `glob({"pattern":"**/README*","exclude":"**/node_modules/**","max_results":30})`
